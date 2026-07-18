@@ -36,15 +36,19 @@ class FlowConfig:
     topk: int = 15
     use_wire: bool = False
     use_repo: bool = False
+    use_velocity_gate: bool = True
     # Endpoint distribution loss selector (replaces use_mmd_loss as the active gate).
     # 'mmd' | 'deg_mse' | 'sinkhorn' | 'deg_sinkhorn' | 'none'. Requires gamma > 0 to take effect.
     endpoint_loss: str = 'mmd'
     deg_epsilon: float = 0.1
     sinkhorn_eps: float = 0.1
     sinkhorn_iters: int = 50
-    # Curated GRN graph (STRING / Reactome / GO / GRNdb) as a 2-column gene-name-pair CSV.
-    # Empty string disables the second graph pass.
-    grn_mask_path: str = ''
+    # Sliced Wassertein distance parameters
+    # For 'deg_max_sliced' loss
+    n_slices: int = 128
+    sliced_top_frac: float = 0.1        # lower -> more max-sliced (worst-case direction)
+    precision_epsilon: float = 0.1
+    sparse_lambda: float = 0.1
     def __post_init__(self):
         if self.data_name == 'norman_umi_go_filtered':
             self.n_top_genes = 5054
@@ -52,24 +56,29 @@ class FlowConfig:
             self.n_top_genes = 5000
         path = self.make_path()
     def make_path(self):
-        exp_name = '-'.join(['flow',
-                             f'fusion_{self.fusion_method}',
+        exp_name = '-'.join([
+                            # 'flow',
+                            #  f'fusion_{self.fusion_method}',
                              f'{self.data_name}',
                              self.model_type,
-                             self.mode,
+                            #  self.mode,
                              f'gamma_{self.gamma}',
                              f'pertfunc_{self.perturbation_function}',
-                             f'lr_{self.lr}',
-                             f'dim_{self.d_model}',
-                             f'infertop_{self.infer_top_gene}',
+                            #  f'lr_{self.lr}',
+                            #  f'dim_{self.d_model}',
+                            #  f'infertop_{self.infer_top_gene}',
                              f'split_{self.split_method}',
-                             f'mmd_{self.use_mmd_loss}',
+                            #  f'mmd_{self.use_mmd_loss}',
                              f'fold_{self.fold}',
                              f'negedge_{self.use_negative_edge}',
-                             f'topk_{self.topk}',
+                            #  f'topk_{self.topk}',
                              f'wire_{self.use_wire}',
                              f'repo_{self.use_repo}',
                              f'endpoint_{self.endpoint_loss}',
-                             f'grn_{self.grn_mask_path != ""}',
+                             f'precision_epsilon_{self.precision_epsilon}',
+                             f'sliced_top_frac_{self.sliced_top_frac}',
+                             f'n_slices_{self.n_slices}',
+                             f'sparse_lambda_{self.sparse_lambda}',
+                             f'velocity_gate_{self.use_velocity_gate}',
                              ])
         return os.path.join(self.result_path, exp_name)

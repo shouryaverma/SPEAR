@@ -113,7 +113,6 @@ class GeneEncoder(nn.Module):
         mask_path: str = None,
         use_wire: bool = True,
         wire_path: str = None,
-        grn_mask_path: str = None,
         neighbor_cap: int = 128,
     ):
         super().__init__()
@@ -121,8 +120,7 @@ class GeneEncoder(nn.Module):
         self.enc_norm = nn.LayerNorm(embedding_dim)
         self.use_perturbation_interaction = use_perturbation_interaction
         self.use_wire = use_wire
-        self.use_grn = grn_mask_path is not None and grn_mask_path != ''
-        self.neighbor_cap = neighbor_cap
+        self.use_wire = use_wire and wire_path is not None
 
         if use_perturbation_interaction:
             # Stored adjacency has True = NON-neighbor (~99% dense); real KNN are the
@@ -142,20 +140,6 @@ class GeneEncoder(nn.Module):
                 embedding_dim, nhead, mlp_ratio=4, dropout=dropout,
                 eigvec_dim=eigvec_dim, use_wire=(use_wire and eigvec_dim is not None),
             )
-
-            if self.use_grn:
-                grn_raw = torch.load(grn_mask_path)
-                if grn_raw.dtype == torch.bool and grn_raw.dim() == 2 and grn_raw.shape[0] == grn_raw.shape[1]:
-                    g = grn_raw.clone()
-                    g.fill_diagonal_(False)
-                    grn_table = self._adjacency_to_neighbor_table(g, neighbor_cap)
-                else:
-                    grn_table = grn_raw.long()
-                self.register_buffer('grn_neighbors', grn_table)
-                self.grn_attn = GeneNeighborAttention(
-                    embedding_dim, nhead, mlp_ratio=4, dropout=dropout,
-                    eigvec_dim=None, use_wire=False,
-                )
 
     @staticmethod
     def _adjacency_to_neighbor_table(adj, k_max):
@@ -192,11 +176,6 @@ class GeneEncoder(nn.Module):
         nbr_emb, valid, coords_nbr = self._gather_neighbors(
             gene_ids[0], self.coexp_neighbors, with_coords=with_coords)
         x = self.coexp_attn(x, nbr_emb, valid, coords_q, coords_nbr)
-
-        if self.use_grn:
-            grn_emb, grn_valid, _ = self._gather_neighbors(
-                gene_ids[0], self.grn_neighbors, with_coords=False)
-            x = self.grn_attn(x, grn_emb, grn_valid)
         return x
 
 

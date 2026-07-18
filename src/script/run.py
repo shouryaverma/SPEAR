@@ -8,7 +8,6 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 import random
 from src.data_process.data import Data, PerturbationDataset
-from src.flow_matching.ot import OTPlanSampler
 from src.flow_matching.path import AffineProbPath
 from src.models.instantiate_model import instantiate_model
 import tqdm
@@ -25,30 +24,10 @@ import re
 from src.utils.utils import (save_checkpoint, load_checkpoint, make_lognorm_poisson_noise,
                               pick_eval_score, process_vocab, set_requires_grad_for_p_only)
 
-ot_sampler = OTPlanSampler(method="exact")
 path = AffineProbPath(scheduler=CondOTScheduler())
-
-
-def build_grn_neighbor_mask(edge_list, gene_name_to_token, ntoken, k):
-    import collections
-    nbrs = collections.defaultdict(list)
-    for e in edge_list:
-        a, b = e[0], e[1]
-        if a in gene_name_to_token and b in gene_name_to_token:
-            ta, tb = gene_name_to_token[a], gene_name_to_token[b]
-            nbrs[ta].append(tb)
-            nbrs[tb].append(ta)
-    mask = torch.full((ntoken, k), -1, dtype=torch.long)
-    for tok, lst in nbrs.items():
-        lst = list(dict.fromkeys(lst))[:k]
-        if lst:
-            mask[tok, :len(lst)] = torch.tensor(lst, dtype=torch.long)
-    return mask
-
 
 def pairwise_sq_dists(X, Y):
     return torch.cdist(X, Y, p=2) ** 2
-
 
 @torch.no_grad()
 def median_sigmas(X, scales=(0.5, 1.0, 2.0, 4.0)):
@@ -57,7 +36,6 @@ def median_sigmas(X, scales=(0.5, 1.0, 2.0, 4.0)):
     m = torch.median(tri).clamp_min(1e-12)
     s2 = torch.tensor(scales, device=X.device) * m
     return [float(s.item()) for s in torch.sqrt(s2)]
-
 
 def mmd2_unbiased_multi_sigma(X, Y, sigmas):
     m, n = X.size(0), Y.size(0)
@@ -125,6 +103,8 @@ def weighted_sqdist(X, Y, w=None):
 
 
 def sinkhorn_value(C, eps, n_iters):
+    C = C.float()
+    eps = float(eps)
     m, n = C.shape
     log_a = torch.full((m,), -math.log(m), device=C.device, dtype=C.dtype)
     log_b = torch.full((n,), -math.log(n), device=C.device, dtype=C.dtype)
@@ -137,14 +117,65 @@ def sinkhorn_value(C, eps, n_iters):
 
 
 def sinkhorn_divergence(X, Y, eps, n_iters, w=None):
+    X = X.float()
+    Y = Y.float()
+    if w is not None:
+        w = w.float()
     return (sinkhorn_value(weighted_sqdist(X, Y, w), eps, n_iters)
             - 0.5 * sinkhorn_value(weighted_sqdist(X, X, w), eps, n_iters)
             - 0.5 * sinkhorn_value(weighted_sqdist(Y, Y, w), eps, n_iters))
 
+def sliced_w2(X, Y, w=None, n_projections=128, top_frac=0.1):
+    """
+    Squared sliced Wasserstein-2 between equal-size point clouds X, Y ((n, d)).
+    Random unit directions -> 1D sort -> squared sorted difference. Loss is the
+    mean over the largest top_frac of projections: top_frac -> 0 gives max-sliced
+    (worst-case direction), top_frac == 1.0 gives plain averaged sliced-W2.
+    w: (d,) per-gene weights; columns are scaled by sqrt(w) before projecting so
+    DE genes stretch the geometry and dominate the worst-case slice.
+    Requires X.shape[0] == Y.shape[0].
+    """
+    X = X.float()
+    Y = Y.float()
+    if w is not None:
+        s = w.float().clamp_min(0).sqrt()
+        X = X * s
+        Y = Y * s
+    d = X.shape[1]
+    theta = torch.randn(d, n_projections, device=X.device)
+    theta = theta / theta.norm(dim=0, keepdim=True).clamp_min(1e-12)
+    Xp = torch.sort(X @ theta, dim=0).values          # (n, L)
+    Yp = torch.sort(Y @ theta, dim=0).values
+    w2 = ((Xp - Yp) ** 2).mean(dim=0)                 # (L,)
+    k = max(1, int(round(top_frac * n_projections)))
+    return torch.topk(w2, k).values.mean()
+
+
+def compute_precision_weights(train_sampler, epsilon=0.1):
+    """
+    Global per-gene weight from inverse control variance (heteroscedastic-noise
+    correction): high-baseline-noise genes are down-weighted, unlike DEG which
+    up-weights movers. w_i = epsilon + (1 - epsilon) * prec_i / max_j prec_j,
+    prec_i = 1 / (Var_ctrl[i] + 1e-8). Returns (n_genes,) CPU tensor.
+    """
+    adata = train_sampler.adata
+    X = adata.X
+    if hasattr(X, "toarray"):
+        X = X.toarray()
+    X = np.asarray(X, dtype=np.float32)
+    cond = adata.obs['perturbation_covariates'].astype(str).values
+    is_ctrl = cond == 'control+control'
+    if is_ctrl.sum() == 0:
+        is_ctrl = np.array(['control' in c.lower() for c in cond])
+    ctrl = X[is_ctrl] if is_ctrl.sum() > 0 else X
+    prec = 1.0 / (ctrl.var(0) + 1e-8)
+    p_max = max(float(prec.max()), 1e-12)
+    w = epsilon + (1.0 - epsilon) * (prec / p_max)
+    return torch.from_numpy(w.astype(np.float32))
 
 def train_step(source, target, perturbation_id, vf, accelerator,
                noise_type='Poisson', mode="predict_y", cfg_dropout=0.0,
-               deg_weights=None, condition_idx=None):
+               deg_weights=None, condition_idx=None, precision_weights=None):
     B = source.shape[0]
     device = accelerator.device
 
@@ -182,8 +213,9 @@ def train_step(source, target, perturbation_id, vf, accelerator,
         endpoint_type = getattr(config, 'endpoint_loss', 'mmd')
         if endpoint_type != 'none':
             w = None
+            deg_types = ('deg_mse', 'deg_sinkhorn', 'deg_max_sliced', 'deg_sinkhorn_sparse')
             if (deg_weights is not None and condition_idx is not None and not use_null
-                    and endpoint_type in ('deg_mse', 'deg_sinkhorn')):
+                    and endpoint_type in deg_types):
                 ci = condition_idx
                 if ci.dim() > 1:
                     ci = ci[0]
@@ -191,6 +223,8 @@ def train_step(source, target, perturbation_id, vf, accelerator,
                 w_full = deg_weights.get(key, None)
                 if w_full is not None:
                     w = w_full[input_gene_ids.cpu()].to(device)
+            elif endpoint_type == 'precision_sinkhorn' and precision_weights is not None:
+                w = precision_weights[input_gene_ids.cpu()].to(device)
 
             if endpoint_type == 'mmd' or (endpoint_type in ('deg_mse', 'deg_sinkhorn') and w is None):
                 sigmas = median_sigmas(target, scales=(0.5, 1.0, 2.0, 4.0))
@@ -199,15 +233,36 @@ def train_step(source, target, perturbation_id, vf, accelerator,
                 weighted_mse = (w * (x1_hat - target) ** 2).mean()
                 sigmas = median_sigmas(target, scales=(1.0, 2.0))
                 endpoint_loss = weighted_mse + 0.1 * mmd2_unbiased_multi_sigma(x1_hat, target, sigmas)
-            elif endpoint_type in ('sinkhorn', 'deg_sinkhorn'):
+            elif endpoint_type in ('sinkhorn', 'deg_sinkhorn', 'precision_sinkhorn'):
                 eps_scale = getattr(config, 'sinkhorn_eps', 0.1)
                 n_iters = getattr(config, 'sinkhorn_iters', 50)
+                x1_hat_f, target_f = x1_hat.float(), target.float()
                 with torch.no_grad():
-                    med = torch.median(weighted_sqdist(x1_hat, target, w)).clamp_min(1e-6)
+                    med = torch.median(weighted_sqdist(x1_hat_f, target_f, w)).clamp_min(1e-6)
                     eps = (eps_scale * med).clamp_min(1e-3)
-                endpoint_loss = sinkhorn_divergence(x1_hat, target, eps, n_iters, w=w)
+                endpoint_loss = sinkhorn_divergence(x1_hat_f, target_f, eps, n_iters, w=w)
                 if not torch.isfinite(endpoint_loss):
                     endpoint_loss = torch.zeros((), device=device)
+            elif endpoint_type in ('max_sliced', 'deg_max_sliced'):
+                endpoint_loss = sliced_w2(
+                    x1_hat, target, w=w,
+                    n_projections=getattr(config, 'n_slices', 128),
+                    top_frac=getattr(config, 'sliced_top_frac', 0.1),
+                )
+            elif endpoint_type == 'deg_sinkhorn_sparse':
+                eps_scale = getattr(config, 'sinkhorn_eps', 0.1)
+                n_iters = getattr(config, 'sinkhorn_iters', 50)
+                x1_hat_f, target_f = x1_hat.float(), target.float()
+                with torch.no_grad():
+                    med = torch.median(weighted_sqdist(x1_hat_f, target_f, w)).clamp_min(1e-6)
+                    eps = (eps_scale * med).clamp_min(1e-3)
+                sink = sinkhorn_divergence(x1_hat_f, target_f, eps, n_iters, w=w)
+                if not torch.isfinite(sink):
+                    sink = torch.zeros((), device=device)
+                mean_delta = x1_hat.mean(0) - source.mean(0)                   # (G,)
+                gate_w = (1.0 - w) if w is not None else torch.ones_like(mean_delta)
+                sparse = (gate_w * mean_delta.abs()).mean()
+                endpoint_loss = sink + getattr(config, 'sparse_lambda', 0.1) * sparse
             else:
                 raise ValueError(f"Unknown endpoint_loss: {endpoint_type}")
 
@@ -227,8 +282,8 @@ def train_step(source, target, perturbation_id, vf, accelerator,
 
 def wrapped_vf(target, t, source, perturbation_id, vf, gene_ids, gene_all, perturbation_emb=None):
     gene = gene_ids.repeat(source.shape[0], 1).to(device)
-    return vf(gene, target, t, source, perturbation_id, gene_all, perturbation_emb=perturbation_emb)
-
+    out = vf(gene, target, t, source, perturbation_id, gene_all, perturbation_emb=perturbation_emb)
+    return out.clone()
 
 @torch.no_grad()
 def generate_sample(wrapped_vf, source, condition_vec=None, vf=None, gene_ids=None,
@@ -347,9 +402,9 @@ def find_latest_checkpoint(save_path: str) -> str | None:
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
-
+    torch.set_float32_matmul_precision("high")
     ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-    accelerator = Accelerator(kwargs_handlers=[ddp_kwargs])
+    accelerator = Accelerator(mixed_precision='bf16', kwargs_handlers=[ddp_kwargs])
 
     def set_seed(seed: int):
         random.seed(seed)
@@ -422,16 +477,6 @@ if __name__ == "__main__":
     gene_ids = vocab.encode(list(data_manager.adata.var_names))
     gene_ids = torch.tensor(gene_ids, dtype=torch.long, device=device)
 
-    grn_mask_path_arg = None
-    if getattr(config, 'grn_mask_path', '') != '':
-        grn_cache = mask_path.replace('.pt', '_grn.pt')
-        if not os.path.exists(grn_cache):
-            edges = pd.read_csv(config.grn_mask_path).itertuples(index=False, name=None)
-            name_to_token = {n: vocab.encode([n])[0] for n in data_manager.adata.var_names if n in vocab.stoi}
-            grn_mask = build_grn_neighbor_mask(edges, name_to_token, ntoken=len(vocab), k=config.topk)
-            torch.save(grn_mask, grn_cache)
-        grn_mask_path_arg = grn_cache
-
     vf = instantiate_model(
         config.model_type,
         ntoken=len(vocab),
@@ -443,7 +488,7 @@ if __name__ == "__main__":
         wire_path=model_wire_path,
         use_wire=config.use_wire,
         use_repo=config.use_repo,
-        grn_mask_path=grn_mask_path_arg,
+        use_velocity_gate=config.use_velocity_gate,
     )
 
     save_path = config.make_path()
@@ -470,7 +515,7 @@ if __name__ == "__main__":
         start_iteration = config.steps
 
     deg_weights = None
-    if getattr(config, 'endpoint_loss', 'mmd') in ('deg_mse', 'deg_sinkhorn'):
+    if getattr(config, 'endpoint_loss', 'mmd') in ('deg_mse', 'deg_sinkhorn', 'deg_max_sliced', 'deg_sinkhorn_sparse'):
         if accelerator.is_main_process:
             print("Precomputing DEG weights...")
         deg_weights = compute_deg_weights(train_sampler, epsilon=getattr(config, 'deg_epsilon', 0.1))
@@ -480,7 +525,15 @@ if __name__ == "__main__":
             _n_genes = train_sampler.adata.shape[1]
             assert _w_len == _n_genes, f"DEG weight length {_w_len} != adata n_genes {_n_genes}"
 
+    precision_weights = None
+    if getattr(config, 'endpoint_loss', 'mmd') == 'precision_sinkhorn':
+        if accelerator.is_main_process:
+            print("Precomputing precision weights...")
+        precision_weights = compute_precision_weights(
+            train_sampler, epsilon=getattr(config, 'precision_epsilon', 0.1))
+
     vf = accelerator.prepare(vf)
+    vf = torch.compile(vf, mode="max-autotune")
     optimizer, scheduler, dataloader = accelerator.prepare(optimizer, scheduler, dataloader)
     inverse_dict = {v: str(k) for k, v in data_manager.perturbation_dict.items()}
     pbar = tqdm.tqdm(total=config.steps, initial=start_iteration)
@@ -503,8 +556,9 @@ if __name__ == "__main__":
             set_requires_grad_for_p_only(vf, p_only=config.mode)
 
             loss = train_step(source, target, perturbation_id, vf, accelerator,
-                              noise_type=config.noise_type, mode=config.mode, cfg_dropout=0.0, #cfg_dropout=0.02,
-                              deg_weights=deg_weights, condition_idx=condition_idx_raw)
+                            noise_type=config.noise_type, mode=config.mode, cfg_dropout=0.0, #cfg_dropout=0.02,
+                            deg_weights=deg_weights, condition_idx=condition_idx_raw,
+                            precision_weights=precision_weights)
 
             optimizer.zero_grad(set_to_none=True)
             accelerator.backward(loss)

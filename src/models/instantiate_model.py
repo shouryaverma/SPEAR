@@ -21,7 +21,7 @@ def instantiate_model(model_type: str, **kwargs):
             wire_path=kwargs.get('wire_path', None),
             use_wire=kwargs.get('use_wire', False),
             use_repo=kwargs.get('use_repo', False),
-            grn_mask_path=kwargs.get('grn_mask_path', None),
+            use_velocity_gate=kwargs.get('use_velocity_gate', True),
         )
         return m
     else:

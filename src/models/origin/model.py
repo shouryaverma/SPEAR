@@ -107,7 +107,7 @@ class model(nn.Module):
                  wire_path: str = None,
                  use_wire: bool = True,
                  use_repo: bool = True,
-                 grn_mask_path: str = None,
+                 use_velocity_gate: bool = True,
                  ):
         super().__init__()
         self.t_embedder = TimestepEmbedder(d_model)
@@ -125,7 +125,7 @@ class model(nn.Module):
             ntoken, d_model,
             use_perturbation_interaction=use_perturbation_interaction,
             mask_path=mask_path, use_wire=use_wire, wire_path=wire_path,
-            nhead=nhead, dropout=dropout, grn_mask_path=grn_mask_path,
+            nhead=nhead, dropout=dropout
         )
         self.use_perturbation_interaction = use_perturbation_interaction
 
@@ -168,11 +168,13 @@ class model(nn.Module):
         self.final_layer = ExprDecoder(d_model, explicit_zero_prob=False, use_batch_labels=True)
         self.initialize_weights()
 
-        self.velocity_gate = nn.Sequential(
-            nn.Linear(2 * d_model, d_model), nn.SiLU(),
-            nn.Linear(d_model, 1, bias=True),
-        )
-        nn.init.constant_(self.velocity_gate[-1].bias, -2.0)
+        self.use_velocity_gate = use_velocity_gate
+        if use_velocity_gate:
+            self.velocity_gate = nn.Sequential(
+                nn.Linear(2 * d_model, d_model), nn.SiLU(),
+                nn.Linear(d_model, 1, bias=True),
+            )
+            nn.init.constant_(self.velocity_gate[-1].bias, -2.0)
 
     def initialize_weights(self):
         def _basic_init(module):
@@ -237,5 +239,8 @@ class model(nn.Module):
             return self.p_head(x.mean(dim=1))
 
         x_cat = torch.cat([x, perturbation_emb[:, None, :].expand(-1, x.size(1), -1)], dim=-1)
-        gate = torch.sigmoid(self.velocity_gate(x_cat))          # (B, G, 1)
-        return self.final_layer(x_cat)['pred'] * gate.squeeze(-1)
+        pred = self.final_layer(x_cat)['pred']
+        if self.use_velocity_gate:
+            gate = torch.sigmoid(self.velocity_gate(x_cat))      # (B, G, 1)
+            pred = pred * gate.squeeze(-1)
+        return pred

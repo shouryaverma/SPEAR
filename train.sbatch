@@ -26,8 +26,22 @@ COMMON="--batch_size=48 --devices=0 --model_type=origin --lr=5e-5 --steps=300000
 --data_name=norman --d_model=128 --eta_min=1e-6 --fusion_method=differential_perceiver \
 --split_method=additive --infer_top_gene=1000 --n_top_genes=5000 --result_path=./result/additive \
 --perturbation_function=crisper --noise_type=Gaussian --mode=predict_y \
---deg_epsilon=0.1 --sinkhorn_eps=0.1 --sinkhorn_iters=50 \
---fold=1 --topk=30 --use_negative_edge --use_repo --use_wire"
+--deg_epsilon=0.1 --sinkhorn_eps=0.1 --sinkhorn_iters=50 --fold=1 --topk=30 \
+--use_negative_edge --use_repo --use_wire"
+
+python src/data_process/precompute_wire.py \
+--data_path_root ./data \
+--data_name norman \
+--out_path data/norman/mask_fold_1topk_30additive_negative_edge_wire_eigvecs.pt \
+--n_top_genes 5000 \
+--infer_top_gene 1000 \
+--d_model 128 \
+--nhead 8 \
+--eigvec_dim 32 \
+--split_method additive \
+--fold 1 \
+--topk 30 \
+--use_negative_edge
 
 python src/script/run.py $COMMON "$@"
 
@@ -42,3 +56,17 @@ printf "\n\t===========Time Stamp===========\n"
 printf "\tStart\t:$start\n\tEnd\t:$end\n\tTime\t:%02d:%02d:%02d\n" "$hours" "$minutes" "$seconds"
 printf "\t================================\n\n"
 sacct --jobs=$SLURM_JOBID --format=jobid,jobname,qos,nnodes,ncpu,maxrss,cputime,avecpu,elapsed
+
+# python src/data_process/precompute_wire.py \
+# --data_path_root ./data \
+# --data_name norman \
+# --out_path data/norman/mask_fold_1topk_30additive_negative_edge_wire_eigvecs.pt \
+# --n_top_genes 5000 \
+# --infer_top_gene 1000 \
+# --d_model 128 \
+# --nhead 8 \
+# --eigvec_dim 32 \
+# --split_method additive \
+# --fold 1 \
+# --topk 30 \
+# --use_negative_edge
