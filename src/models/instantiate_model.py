@@ -22,6 +22,11 @@ def instantiate_model(model_type: str, **kwargs):
             use_wire=kwargs.get('use_wire', False),
             use_repo=kwargs.get('use_repo', False),
             use_velocity_gate=kwargs.get('use_velocity_gate', True),
+            use_samsvae=kwargs.get('use_samsvae', False),
+            samsvae_control_id=kwargs.get('samsvae_control_id', None),
+            samsvae_pert_vocab_ids=kwargs.get('samsvae_pert_vocab_ids', None),
+            samsvae_latent_dim=kwargs.get('samsvae_latent_dim', 64),
+            samsvae_mask_prior=kwargs.get('samsvae_mask_prior', 'l1'),
         )
         return m
     else:

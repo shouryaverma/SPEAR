@@ -4,6 +4,7 @@ import os
 class FlowConfig:
     # Flow model type
     model_type: str = 'origin'
+    seed: int = 42
     # Flow Matching specific parameters
     batch_size: int = 32
     ntoken: int = 512
@@ -27,6 +28,11 @@ class FlowConfig:
     infer_top_gene: int = 1000
     n_top_genes: int = 5000
     checkpoint_path: str = ''
+    split_file: str = ''     # override the split pickle path (for custom unseen splits)
+    train_frac: float = 1.0  # data-efficiency regime: fraction of train perturbations to keep
+    finetune: bool = False   # load ONLY model weights from checkpoint_path (strip _orig_mod,
+                             # keep new zero-init heads at init, fresh optimizer/scheduler,
+                             # start_iteration=0). For finetuning a pretrained baseline + causal head.
     gamma: float = 0.0
     split_method: str = 'additive'
     plate_col: str = ''  # Donor/plate column for batch-controlled pairing. Empty disables it.
@@ -49,6 +55,19 @@ class FlowConfig:
     sliced_top_frac: float = 0.1        # lower -> more max-sliced (worst-case direction)
     precision_epsilon: float = 0.1
     sparse_lambda: float = 0.1
+    # SAMS-VAE head: per-perturbation sparse additive mechanism shift in a latent space
+    # (Bereket & Karaletsos 2023). Identifiability from the sparse-mask prior (not
+    # anchoring). Zero-init decode => exact no-op residual when off (byte-identical to the
+    # baseline). samsvae_* = its structural params.
+    use_samsvae: bool = False
+    samsvae_lambda_mask: float = 1e-4  # sparse mechanism-shift prior weight (+ warmup ramp)
+    samsvae_lr: float = 1e-3           # dedicated (higher) lr for the head; <=0 -> use global lr
+    samsvae_warmup_steps: int = 500    # ramp the sparsity penalty from 0 over these steps
+    samsvae_freeze_base: bool = False  # freeze pretrained baseline; train ONLY the causal head
+    samsvae_latent_dim: int = 64      # latent mechanism dimension L
+    samsvae_mask_prior: str = 'concrete'  # 'concrete' (hard-concrete L0, gauge-ROBUST default) |
+                                          # 'l1' (sigmoid+L1 ablation; shift-normalized but retains a
+                                          #  decode-scale gauge -> read via gauge-invariant mech_l1 metric)
     def __post_init__(self):
         if self.data_name == 'norman_umi_go_filtered':
             self.n_top_genes = 5054
@@ -80,5 +99,7 @@ class FlowConfig:
                              f'n_slices_{self.n_slices}',
                              f'sparse_lambda_{self.sparse_lambda}',
                              f'velocity_gate_{self.use_velocity_gate}',
+                             f'samsvae_{self.use_samsvae}',
+                             f'seed_{self.seed}',
                              ])
         return os.path.join(self.result_path, exp_name)

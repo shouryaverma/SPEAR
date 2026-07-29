@@ -175,7 +175,8 @@ def compute_precision_weights(train_sampler, epsilon=0.1):
 
 def train_step(source, target, perturbation_id, vf, accelerator,
                noise_type='Poisson', mode="predict_y", cfg_dropout=0.0,
-               deg_weights=None, condition_idx=None, precision_weights=None):
+               deg_weights=None, condition_idx=None, precision_weights=None,
+               scm_lambda_scale=1.0):
     B = source.shape[0]
     device = accelerator.device
 
@@ -268,6 +269,15 @@ def train_step(source, target, perturbation_id, vf, accelerator,
 
             loss = loss + endpoint_loss * config.gamma
 
+        # SAMS-VAE sparse-mechanism-shift regularizer. Computed on the unwrapped model so
+        # grad flows to the head params regardless of DDP / torch.compile wrapping.
+        if getattr(config, 'use_samsvae', False) and not use_null:
+            raw_vf = accelerator.unwrap_model(vf)
+            loss = loss + raw_vf.samsvae_regularizer(
+                perturbation_id,
+                getattr(config, 'samsvae_lambda_mask', 1e-4) * scm_lambda_scale,
+            )
+
     elif mode == "predict_p":
         t_p = torch.ones(B, device=device)
         predicted_p_embed = vf(gene_input, target, t_p, source, perturbation_id, gene_input, mode=mode)
@@ -319,6 +329,13 @@ def generate_sample(wrapped_vf, source, condition_vec=None, vf=None, gene_ids=No
 
 @torch.inference_mode()
 def test(data_sampler, vf, accelerator, batch_size=128, path='./', vocab=None, scheme='mse'):
+    # Eval identical to original codebase (no RNG save/restore): eval consumes the RNG
+    # stream exactly as upstream, so training trajectory + eval match the original.
+    return _test_impl(data_sampler, vf, accelerator, batch_size, path, vocab, scheme)
+
+
+@torch.inference_mode()
+def _test_impl(data_sampler, vf, accelerator, batch_size=128, path='./', vocab=None, scheme='mse'):
     gene_ids_test = vocab.encode(list(data_sampler.adata.var_names))
     gene_ids_test = torch.tensor(gene_ids_test, dtype=torch.long, device=device)
     perturbation_name_list = data_sampler._perturbation_covariates
@@ -412,7 +429,7 @@ if __name__ == "__main__":
         torch.manual_seed(seed)
         torch.cuda.manual_seed_all(seed)
 
-    set_seed(42)
+    set_seed(config.seed)
 
     if accelerator.is_main_process:
         print(config)
@@ -426,6 +443,8 @@ if __name__ == "__main__":
         n_top_genes=config.n_top_genes, infer_top_gene=config.infer_top_gene,
         split_method=config.split_method, fold=config.fold,
         use_negative_edge=config.use_negative_edge, k=config.topk,
+        split_file=getattr(config, 'split_file', ''),
+        train_frac=getattr(config, 'train_frac', 1.0),
     )
     train_sampler, valid_sampler, test_dl = data_manager.load_flow_data(batch_size=config.batch_size)
 
@@ -477,6 +496,12 @@ if __name__ == "__main__":
     gene_ids = vocab.encode(list(data_manager.adata.var_names))
     gene_ids = torch.tensor(gene_ids, dtype=torch.long, device=device)
 
+    # Hard/soft factor anchoring: map each perturbable gene to a vocab token id, sorted
+    # for a deterministic factor<->gene correspondence across seeds. Hard anchor sets
+    # K = len(these) and factor k == gene _pert_names[k] (A becomes a gene x gene DAG).
+    _pert_names = sorted(g for g in data_manager.perturbation_dict if g != 'control')
+    samsvae_pert_vocab_ids = [vocab[g] for g in _pert_names if g in vocab.stoi]
+
     vf = instantiate_model(
         config.model_type,
         ntoken=len(vocab),
@@ -489,11 +514,34 @@ if __name__ == "__main__":
         use_wire=config.use_wire,
         use_repo=config.use_repo,
         use_velocity_gate=config.use_velocity_gate,
+        use_samsvae=config.use_samsvae,
+        samsvae_control_id=(vocab['control'] if 'control' in vocab.stoi else None),
+        samsvae_pert_vocab_ids=samsvae_pert_vocab_ids,
+        samsvae_latent_dim=getattr(config, 'samsvae_latent_dim', 64),
+        samsvae_mask_prior=getattr(config, 'samsvae_mask_prior', 'l1'),
     )
 
     save_path = config.make_path()
 
-    optimizer = torch.optim.Adam(vf.parameters(), lr=config.lr)
+    if config.use_samsvae and getattr(config, 'samsvae_lr', 0.0) and config.samsvae_lr > 0:
+        samsvae_params = list(vf.samsvae.parameters()) if hasattr(vf, 'samsvae') else []
+        samsvae_ids = {id(p) for p in samsvae_params}
+        other_params = [p for p in vf.parameters() if id(p) not in samsvae_ids]
+        if getattr(config, 'samsvae_freeze_base', False):
+            # Freeze the pretrained baseline; only the (zero-init) causal head learns, so it
+            # must independently carry any gain -> a clean test of the causal head's value.
+            for p in other_params:
+                p.requires_grad = False
+            optimizer = torch.optim.Adam([{'params': samsvae_params, 'lr': config.samsvae_lr}])
+            print(f"[SAMSVAE] FROZEN base; training only {len(samsvae_params)} causal-head tensors @ lr={config.samsvae_lr}")
+        else:
+            optimizer = torch.optim.Adam([
+                {'params': other_params, 'lr': config.lr},
+                {'params': samsvae_params, 'lr': config.samsvae_lr},
+            ])
+            print(f"[SAMSVAE] dedicated param group: {len(samsvae_params)} tensors @ lr={config.samsvae_lr}")
+    else:
+        optimizer = torch.optim.Adam(vf.parameters(), lr=config.lr)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.steps, eta_min=config.eta_min)
 
     if config.checkpoint_path == '':
@@ -501,12 +549,20 @@ if __name__ == "__main__":
 
     start_iteration = 0
     if config.checkpoint_path != '':
-        if accelerator.is_main_process:
-            print(f"Resuming from checkpoint: {config.checkpoint_path}")
-        load_checkpoint(config.checkpoint_path, vf, optimizer, scheduler)
-        match = re.search(r"iteration_(\d+)", config.checkpoint_path)
-        if match:
-            start_iteration = int(match.group(1)) + 1
+        if config.finetune:
+            # Finetune: load ONLY model weights (new causal head stays zero-init), keep the
+            # freshly-built optimizer/scheduler (which include the causal-head param group),
+            # and train from iteration 0 with the finetune LR schedule.
+            if accelerator.is_main_process:
+                print(f"Finetuning from checkpoint (weights only): {config.checkpoint_path}")
+            load_checkpoint(config.checkpoint_path, vf)
+        else:
+            if accelerator.is_main_process:
+                print(f"Resuming from checkpoint: {config.checkpoint_path}")
+            load_checkpoint(config.checkpoint_path, vf, optimizer, scheduler)
+            match = re.search(r"iteration_(\d+)", config.checkpoint_path)
+            if match:
+                start_iteration = int(match.group(1)) + 1
 
     if start_iteration >= config.steps:
         if accelerator.is_main_process:
@@ -533,7 +589,8 @@ if __name__ == "__main__":
             train_sampler, epsilon=getattr(config, 'precision_epsilon', 0.1))
 
     vf = accelerator.prepare(vf)
-    vf = torch.compile(vf, mode="max-autotune")
+    if os.environ.get("SPEAR_COMPILE", "0") == "1":
+        vf = torch.compile(vf, mode="max-autotune")
     optimizer, scheduler, dataloader = accelerator.prepare(optimizer, scheduler, dataloader)
     inverse_dict = {v: str(k) for k, v in data_manager.perturbation_dict.items()}
     pbar = tqdm.tqdm(total=config.steps, initial=start_iteration)
@@ -555,16 +612,35 @@ if __name__ == "__main__":
 
             set_requires_grad_for_p_only(vf, p_only=config.mode)
 
+            scm_scale = 1.0
+            if config.use_samsvae and getattr(config, 'samsvae_warmup_steps', 0) > 0:
+                scm_scale = min(1.0, iteration / float(config.samsvae_warmup_steps))
+
             loss = train_step(source, target, perturbation_id, vf, accelerator,
                             noise_type=config.noise_type, mode=config.mode, cfg_dropout=0.0, #cfg_dropout=0.02,
                             deg_weights=deg_weights, condition_idx=condition_idx_raw,
-                            precision_weights=precision_weights)
+                            precision_weights=precision_weights, scm_lambda_scale=scm_scale)
 
             optimizer.zero_grad(set_to_none=True)
             accelerator.backward(loss)
             accelerator.clip_grad_norm_(vf.parameters(), max_norm=1.0)
             optimizer.step()
             scheduler.step()
+
+            # SAMS-VAE activity instrumentation (B3): confirm the head is not collapsing
+            # to a permanent no-op residual.
+            if config.use_samsvae and accelerator.is_main_process and iteration % 200 == 0:
+                try:
+                    st = accelerator.unwrap_model(vf).samsvae_stats(perturbation_id)
+                    # mech_l1 / active_dims are gauge-INVARIANT collapse probes: if they
+                    # trend to 0 the sparse mask is empty (interpretability claim void).
+                    print(f"[SAMSVAE] it={iteration} code_norm(mean/max)="
+                          f"{st['code_norm_mean']:.4f}/{st['code_norm_max']:.4f} "
+                          f"z_norm={st['z_norm_mean']:.4f} mech_l1={st['mech_l1_mean']:.4f} "
+                          f"active_dims={st['active_dims_mean']:.4f} mask_mean={st['mask_mean']:.4f} "
+                          f"shift_absmax={st['shift_absmax']:.4f}")
+                except Exception as e:
+                    print(f"[SAMSVAE] stats error: {e}")
 
             if iteration > 0 and iteration % config.print_every == 0:
                 save_path_ = os.path.join(save_path, f'iteration_{iteration}')

@@ -1,8 +1,7 @@
 __pycache__/
 test.md
-*.h5ad
 *.zip
-result*/
+# result/ training artifacts ARE tracked (via git-lfs for *.pt / *.h5ad)
 data/
 metric*/
 paper_analysis/

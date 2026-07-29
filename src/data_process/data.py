@@ -4,6 +4,7 @@ import numpy as np
 import json
 import torch
 import pickle
+import re
 from typing import Union, Optional
 from pathlib import Path
 import os
@@ -33,6 +34,10 @@ class Data:
             self.adata = sc.read_h5ad(os.path.join(self.data_path, data_name + '.h5ad'))
         elif data_name in ['combosciplex', ]:
             self.adata = sc.read_h5ad(os.path.join(self.data_path, data_name + '.h5ad'))
+        elif data_name in ['replogle', ]:
+            self.adata = sc.read_h5ad(os.path.join(self.data_path, data_name + '.h5ad'))
+        elif data_name in ['dixit', ]:
+            self.adata = sc.read_h5ad(os.path.join(self.data_path, data_name + '.h5ad'))
         else:
             raise ValueError(data_name + ' is not a valid data name')
         
@@ -54,10 +59,17 @@ class Data:
                     lambda x: True if x["condition"] == "control" else False, axis=1
                 )
                 
-                annotate_compounds(self.adata, compound_keys=["Drug1", "Drug2"])
-                get_molecular_fingerprints(self.adata, compound_keys=["Drug1", "Drug2"])
-                self.adata.uns["fingerprints"]["control"] = np.zeros(1024)
-                
+                try:
+                    annotate_compounds(self.adata, compound_keys=["Drug1", "Drug2"])
+                    get_molecular_fingerprints(self.adata, compound_keys=["Drug1", "Drug2"])
+                    self.adata.uns["fingerprints"]["control"] = np.zeros(1024)
+                except Exception as e:
+                    # No network / pertpy: fall back to categorical drug tokens (no molecular
+                    # fingerprints). Downstream crisper/embedder uses perturbation_dict, not uns.
+                    print(f"[combosciplex] molecular fingerprints unavailable ({type(e).__name__}); "
+                          f"using categorical drug tokens only")
+                    self.adata.uns["fingerprints"] = {}
+
                 self.adata.write(os.path.join(self.data_path, self.data_name, 'processed.h5ad'))
             
             self.adata.X = self.adata.layers["counts"].copy()
@@ -93,8 +105,59 @@ class Data:
             self.unique_perturbation = unique_perturbation
             self.perturbation_dict = {perturbation: i for i, perturbation in enumerate(unique_perturbation)}
             # self._val_manager = 
-        elif self.data_name in ['norman', 'norman_umi_go_filtered', 'parse_pbmc', 'op3']:
-            
+        elif self.data_name in ['norman', 'norman_umi_go_filtered', 'parse_pbmc', 'op3', 'replogle', 'dixit']:
+
+            if self.data_name == 'dixit':
+                # Dixit K562 TF Perturb-seq (High MOI), raw counts. Guide names are
+                # 'p-sgTF-N' (and '_'-joined for multi-guide cells). Parse each cell's
+                # guide set -> TF set (intergenic/control guides yield nothing), then:
+                #   0 TF -> 'control' (true control + intergenic-only cells),
+                #   1 TF -> 'TF+control', 2 TF -> sorted 'A+B'.
+                # Drop >=3-TF cells: SPEAR predicts doubles from singles (additive split),
+                # and Drug1/Drug2 only hold two tokens. This keeps the 45 = C(10,2) fully
+                # covered double combos + 10 singles + control -- all perturbations are TFs,
+                # so every epistatic pair lands on a TF-TF regulatory edge (the control
+                # variable norman lacks).
+                p = self.adata.obs['perturbation'].astype(str)
+                def _to_tfs(x):
+                    if x == 'control':
+                        return []
+                    s = set()
+                    for g in x.split('_'):
+                        m = re.match(r'p-sg([A-Za-z0-9]+)-\d+', g)
+                        if m:
+                            s.add(m.group(1))
+                    return sorted(s)
+                tf_lists = p.map(_to_tfs)
+                ntf = tf_lists.map(len)
+                keep = (ntf <= 2).values
+                self.adata = self.adata[keep].copy()
+                tf_lists = tf_lists[keep]
+                def _to_cond(tfs):
+                    if len(tfs) == 0:
+                        return 'control'
+                    if len(tfs) == 1:
+                        return f'{tfs[0]}+control'
+                    return f'{tfs[0]}+{tfs[1]}'
+                cond = tf_lists.map(_to_cond)
+                self.adata.obs['condition'] = cond.values
+                ctrl_mask = (self.adata.obs['condition'] == 'control').values
+                sc.pp.normalize_total(self.adata)
+                sc.pp.log1p(self.adata)
+                self.adata.obs['control'] = ctrl_mask.astype(int)
+
+            if self.data_name == 'replogle':
+                # Single-gene Perturb-seq, raw counts. Build 'condition' from 'perturbation',
+                # normalize+log, convert bare 'GENE' -> 'GENE+control' (SPEAR needs Drug1+Drug2),
+                # control stays 'control', and build the 0/1 control column downstream needs.
+                self.adata.obs['condition'] = self.adata.obs['perturbation'].astype(str)
+                ctrl_mask = (self.adata.obs['condition'] == 'control').values
+                sc.pp.normalize_total(self.adata)
+                sc.pp.log1p(self.adata)
+                self.adata.obs['condition'] = self.adata.obs['condition'].astype(str).apply(
+                    lambda g: 'control' if g == 'control' else f'{g}+control')
+                self.adata.obs['control'] = ctrl_mask.astype(int)
+
             sc.pp.highly_variable_genes(self.adata, inplace=True, n_top_genes=n_top_genes)
             
             self.adata.obs['condition'] = self.adata.obs['condition'].str.replace('ctrl', 'control', regex=False)
@@ -103,7 +166,7 @@ class Data:
             [unique_perturbation.extend(perturbation.split('+')) for perturbation in self.adata.obs['condition'].unique()]
             unique_perturbation = np.unique(unique_perturbation)
             
-            if self.data_name == 'norman':
+            if self.data_name in ['norman', 'replogle', 'dixit']:
                 for perturbation in unique_perturbation:
                     if perturbation in self.adata.var_names:
                         self.adata.var.loc[perturbation, 'highly_variable'] = True
@@ -120,8 +183,22 @@ class Data:
                 self.adata = self.adata[:, self.adata.var['highly_variable']]
 
             
-            #### for split five times 
-            if split_method in ['additive', 'combinations']:
+            #### for split five times
+            if self.data_name == 'replogle':
+                # Unseen single-gene holdout: hold out 20% of perturbed genes as test.
+                # Model never trains on them -> must generalize via causal/GRN propagation
+                # from seen genes. This is where causal structure is irreplaceable.
+                singles = sorted([g for g in unique_perturbation if g != 'control'])
+                self.split_results = []
+                for i in range(5):
+                    rng = np.random.RandomState(42 + i)
+                    sh = np.array(singles).copy(); rng.shuffle(sh)
+                    n_test = max(1, int(len(sh) * 0.2))
+                    held = sh[:n_test]
+                    self.split_results.append({'test': [f'{g}+control' for g in held]})
+                print(f'[replogle] unseen split: {len(self.split_results[0]["test"])} held-out genes/fold '
+                      f'of {len(singles)} total')
+            elif split_method in ['additive', 'combinations']:
                 split_file = os.path.join(self.data_path, self.data_name, 'split_results.pkl')
                 if os.path.exists(split_file):
                     with open(split_file, 'rb') as f:
@@ -151,7 +228,7 @@ class Data:
                     print('split results saved')
                     
             elif split_method == 'unseen':
-                split_file = os.path.join(self.data_path, self.data_name, 'split_results_unseen.pkl')
+                split_file = kwargs.get('split_file', '') or os.path.join(self.data_path, self.data_name, 'split_results_unseen.pkl')
                 if os.path.exists(split_file):
                     with open(split_file, 'rb') as f:
                         self.split_results = pickle.load(f)
@@ -169,11 +246,14 @@ class Data:
                         p_count = {}
                         for p in double_perturbation:
                             ps = p.split('+')
+                            if len(ps) < 2:            # skip malformed / single-token conditions
+                                continue
                             count = int(ps[0] in remove_genes) + int(ps[1] in remove_genes)
                             p_count[p] = count
                         double_perturbation = [p for p, count in p_count.items() if count > 0]
                         double_perturbation = list(double_perturbation)
-                        remove_genes_condition = [p+'+control' for p in remove_genes]
+                        # norman single-perturbation conditions are 'GENE+ctrl' (not '+control')
+                        remove_genes_condition = [p+'+ctrl' for p in remove_genes]
                         double_perturbation.extend(remove_genes_condition)
                         self.split_results.append({
                             'p_count': p_count,
@@ -251,6 +331,21 @@ class Data:
             else:
                 self.adata.obs.loc[self.adata.obs['condition'].isin(self.split_results[fold]['test']), 'mode'] = 'test'
             
+            # Data-efficiency regime: subsample training perturbations to train_frac (keep all
+            # control cells). Fixed seed => baseline & causal see the IDENTICAL reduced train set.
+            train_frac = float(kwargs.get('train_frac', 1.0))
+            if train_frac < 1.0:
+                tr = self.adata.obs['mode'] == 'train'
+                nonctrl = [c for c in self.adata.obs.loc[tr & (self.adata.obs['control'] != 1),
+                                                         'condition'].unique()]
+                rng = np.random.RandomState(int(kwargs.get('subsample_seed', 42)))
+                k = max(1, int(round(len(nonctrl) * train_frac)))
+                keep = set(rng.choice(np.array(nonctrl), size=k, replace=False).tolist())
+                drop = tr & (self.adata.obs['control'] != 1) & (~self.adata.obs['condition'].isin(keep))
+                self.adata.obs.loc[drop, 'mode'] = 'excluded'
+                print(f"[train_frac={train_frac}] kept {k}/{len(nonctrl)} train perturbations "
+                      f"(+all control); dropped {int(drop.sum())} cells")
+
             self.adata_train = self.adata[self.adata.obs['mode'] == 'train']
             self.adata_test = self.adata[(self.adata.obs['mode'] == 'test') | (self.adata.obs['control'] == 1)]
             
@@ -279,7 +374,15 @@ class Data:
         if os.path.exists(mask_path):
             self.mask = torch.load(mask_path)
         else:
-            X = self.adata_train.X.toarray() if hasattr(self.adata_train.X, 'toarray') else np.array(self.adata_train.X)
+            # Build co-expression mask from ALL train cells (matches original backbone;
+            # norman ~59k dense-es in ~65s). Only subsample for very large datasets
+            # (e.g. replogle 250k) to avoid OOM — norman/combosciplex use full cells so
+            # the mask is byte-identical to the original codebase (backbone unchanged).
+            _Xtr = self.adata_train.X
+            if _Xtr.shape[0] > 150000:
+                _ridx = np.random.RandomState(0).choice(_Xtr.shape[0], 150000, replace=False)
+                _Xtr = _Xtr[_ridx]
+            X = _Xtr.toarray() if hasattr(_Xtr, 'toarray') else np.array(_Xtr)
             mask = build_gene_coexpression_graph(X,
                 method="pearson",
                 wgcna_beta=None,
@@ -297,7 +400,7 @@ class Data:
             test_sampler = TestDataset(self.data_name, self.adata_test, ["Drug1", "Drug2"], self.perturbation_dict)
             
             return train_sampler , test_sampler, []
-        elif self.data_name in ['norman', 'norman_umi_go_filtered', 'parse_pbmc', 'op3']:
+        elif self.data_name in ['norman', 'norman_umi_go_filtered', 'parse_pbmc', 'op3', 'replogle', 'dixit']:
             train_sampler = TrainSampler(self.data_name, self.adata_train, ["Drug1", "Drug2"], self.perturbation_dict)
             test_sampler = TestDataset(self.data_name, self.adata_test, ["Drug1", "Drug2"], self.perturbation_dict)
             return train_sampler , test_sampler, []
@@ -322,10 +425,10 @@ class TrainSampler:
         self.adata = adata
         self.perturbation_covariates = perturbation_covariates
         self.adata.obs['perturbation_covariates'] = self.adata.obs[perturbation_covariates].apply(lambda x: '+'.join(x), axis=1)
-        self._perturbation_covariates = adata.obs['perturbation_covariates'].unique()
-        
+        self._perturbation_covariates = np.asarray(adata.obs['perturbation_covariates'].unique(), dtype=object)
+
         self._perturbation_covariates = self._perturbation_covariates[self._perturbation_covariates != 'control+control']
-        
+
         self._perturbation_covariates.sort()
         self.perturbation_covariates_dict = {perturbation: i for i, perturbation in enumerate(self._perturbation_covariates)}
         
@@ -375,12 +478,14 @@ class TestDataset:
         self.adata = adata
         self.perturbation_covariates = perturbation_covariates
         self.adata.obs['perturbation_covariates'] = self.adata.obs[perturbation_covariates].apply(lambda x: '+'.join(x), axis=1)
-        self._perturbation_covariates = adata.obs['perturbation_covariates'].unique()
-        
+        self._perturbation_covariates = np.asarray(adata.obs['perturbation_covariates'].unique(), dtype=object)
+
         self._perturbation_covariates = self._perturbation_covariates[self._perturbation_covariates != 'control+control']
-        
+
         self._perturbation_covariates.sort()
-        n_eval_conditions = 10
+        # Fixed-seed subset (identical across ablation arms). 40 gives enough held-out
+        # combinations for a stable compositional signal while bounding eval time.
+        n_eval_conditions = int(os.environ.get('SPEAR_N_EVAL_CONDITIONS', '10'))  # match original codebase (was 10)
         if n_eval_conditions is not None and len(self._perturbation_covariates) > n_eval_conditions:
             rng = np.random.default_rng(42)
             self._perturbation_covariates = rng.choice(

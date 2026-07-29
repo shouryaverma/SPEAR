@@ -1,0 +1,679 @@
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scanpy/_utils/__init__.py:33: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  from anndata import __version__ as anndata_version
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scanpy/__init__.py:24: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  if Version(anndata.__version__) >= Version("0.11.0rc2"):
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scanpy/readwrite.py:16: FutureWarning: `__version__` is deprecated, use `importlib.metadata.version('anndata')` instead.
+  if Version(anndata.__version__) >= Version("0.11.0rc2"):
+/home/wangmengbo/p1/SPEAR/SPEAR-main/src/models/scGPT/model.py:1392: UserWarning: flash_attn is not installed
+  warnings.warn("flash_attn is not installed")
+FlowConfig(model_type='origin', seed=42, batch_size=48, ntoken=512, d_model=128, lr=1e-09, steps=2, eta_min=1e-06, devices='1', test_only=False, data_name='norman', perturbation_function='crisper', noise_type='Gaussian', poisson_alpha=0.8, poisson_target_sum=-1, print_every=1, mode='predict_y', result_path='./result/verify_baseline', perturbation_fusion_method='sum', fusion_method='differential_perceiver', infer_top_gene=1000, n_top_genes=5000, checkpoint_path='result/checkpoint.pt', finetune=True, gamma=0.1, split_method='additive', plate_col='', use_mmd_loss=False, fold=1, use_negative_edge=True, topk=30, use_wire=True, use_repo=True, use_velocity_gate=True, endpoint_loss='deg_sinkhorn_sparse', deg_epsilon=0.1, sinkhorn_eps=0.1, sinkhorn_iters=50, n_slices=128, sliced_top_frac=0.1, precision_epsilon=0.1, sparse_lambda=0.1, use_scm=False, scm_n_factors=64, scm_lambda_mask=0.0001, scm_lambda_adj=0.0001, scm_use_interaction=True, scm_lr=0.001, scm_warmup_steps=500, scm_lambda_ia=0.0, scm_lambda_beta=0.0, scm_decode_mode='gelu', scm_direct_inject=False, scm_head_type='iplc', scm_dense_hidden=1024, scm_grn_path='data/norman/grn_propagation_T.pt', scm_grn_hidden=256)
+Warning: control is not in the gene names
+/home/wangmengbo/p1/SPEAR/SPEAR-main/src/data_process/data.py:228: ImplicitModificationWarning: Trying to modify attribute `.obs` of view, initializing view as actual.
+  self.adata.obs['Drug1'] = self.adata.obs['condition'].str.split('+').apply(lambda x: x[0])
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scanpy/preprocessing/_highly_variable_genes.py:705: ImplicitModificationWarning: Trying to modify attribute `._uns` of view, initializing view as actual.
+  adata.uns["hvg"] = {"flavor": flavor}
+/home/wangmengbo/p1/SPEAR/SPEAR-main/src/data_process/data.py:324: ImplicitModificationWarning: Trying to modify attribute `.obs` of view, initializing view as actual.
+  self.adata.obs['perturbation_covariates'] = self.adata.obs[perturbation_covariates].apply(lambda x: '+'.join(x), axis=1)
+/home/wangmengbo/p1/SPEAR/SPEAR-main/src/data_process/data.py:377: ImplicitModificationWarning: Trying to modify attribute `.obs` of view, initializing view as actual.
+  self.adata.obs['perturbation_covariates'] = self.adata.obs[perturbation_covariates].apply(lambda x: '+'.join(x), axis=1)
+##### loading vocab from cache #####
+Finetuning from checkpoint (weights only): result/checkpoint.pt
+[load_checkpoint] loaded 290/290 tensors; missing(new-head)=0, unexpected=0
+loading result/checkpoint.pt checkpoint, iteration: 295000, eval_score: None
+Precomputing DEG weights...
+DEG weight conditions: 158; sample keys: [(1, 101), (2, 101), (3, 101)]
+  0%|          | 0/2 [00:00<?, ?it/s] 50%|█████     | 1/2 [00:02<00:02,  2.68s/it]loss: 0.5624, iteration: 0:  50%|█████     | 1/2 [00:02<00:02,  2.68s/it]saving 1's checkpoint...
+save checkpoint to: ./result/verify_baseline/norman-origin-gamma_0.1-pertfunc_crisper-split_additive-fold_1-negedge_True-wire_True-repo_True-endpoint_deg_sinkhorn_sparse-precision_epsilon_0.1-sliced_top_frac_0.1-n_slices_128-sparse_lambda_0.1-velocity_gate_True-scm_False-ia_0.0-seed_42/iteration_1/checkpoint.pt
+perturbation_name_list: 40
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.71s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.72s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.65s/it][A100%|██████████| 3/3 [00:11<00:00,  3.67s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.69s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.65s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.61s/it][A100%|██████████| 3/3 [00:10<00:00,  3.62s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.67s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.70s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.64s/it][A100%|██████████| 3/3 [00:10<00:00,  3.66s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.91s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.96s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.92s/it][A100%|██████████| 3/3 [00:11<00:00,  3.93s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.73s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.86s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.83s/it][A100%|██████████| 3/3 [00:11<00:00,  3.82s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:04<00:08,  4.18s/it][A
+ 67%|██████▋   | 2/3 [00:08<00:04,  4.02s/it][A
+100%|██████████| 3/3 [00:12<00:00,  4.07s/it][A100%|██████████| 3/3 [00:12<00:00,  4.07s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.72s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.64s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.65s/it][A100%|██████████| 3/3 [00:10<00:00,  3.65s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.79s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.91s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.73s/it][A100%|██████████| 3/3 [00:11<00:00,  3.77s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.99s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.97s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.92s/it][A100%|██████████| 3/3 [00:11<00:00,  3.94s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.79s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.88s/it][A
+100%|██████████| 3/3 [00:12<00:00,  4.19s/it][A100%|██████████| 3/3 [00:12<00:00,  4.09s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.92s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.79s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.63s/it][A100%|██████████| 3/3 [00:11<00:00,  3.68s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.60s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.59s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.47s/it][A100%|██████████| 3/3 [00:10<00:00,  3.51s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.68s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.65s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.56s/it][A100%|██████████| 3/3 [00:10<00:00,  3.58s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.83s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.77s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.94s/it][A100%|██████████| 3/3 [00:11<00:00,  3.90s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.85s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.75s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.74s/it][A100%|██████████| 3/3 [00:11<00:00,  3.76s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.58s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.65s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.66s/it][A100%|██████████| 3/3 [00:10<00:00,  3.65s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.59s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.56s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.51s/it][A100%|██████████| 3/3 [00:10<00:00,  3.53s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.60s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.75s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.61s/it][A100%|██████████| 3/3 [00:10<00:00,  3.63s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.62s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.64s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.58s/it][A100%|██████████| 3/3 [00:10<00:00,  3.59s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.84s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.75s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.63s/it][A100%|██████████| 3/3 [00:11<00:00,  3.67s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.63s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.62s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.60s/it][A100%|██████████| 3/3 [00:10<00:00,  3.60s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.64s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.65s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.60s/it][A100%|██████████| 3/3 [00:10<00:00,  3.61s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.75s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.78s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.73s/it][A100%|██████████| 3/3 [00:11<00:00,  3.74s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.79s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.70s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.58s/it][A100%|██████████| 3/3 [00:10<00:00,  3.62s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.73s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.90s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.75s/it][A100%|██████████| 3/3 [00:11<00:00,  3.77s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.63s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.71s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.61s/it][A100%|██████████| 3/3 [00:10<00:00,  3.63s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.59s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.66s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.65s/it][A100%|██████████| 3/3 [00:10<00:00,  3.64s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.60s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.60s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.59s/it][A100%|██████████| 3/3 [00:10<00:00,  3.59s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.66s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.77s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.66s/it][A100%|██████████| 3/3 [00:11<00:00,  3.68s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.74s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.70s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.67s/it][A100%|██████████| 3/3 [00:11<00:00,  3.68s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.83s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.77s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.63s/it][A100%|██████████| 3/3 [00:11<00:00,  3.68s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.62s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.61s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.55s/it][A100%|██████████| 3/3 [00:10<00:00,  3.56s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.77s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.67s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.58s/it][A100%|██████████| 3/3 [00:10<00:00,  3.62s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.59s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.64s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.55s/it][A100%|██████████| 3/3 [00:10<00:00,  3.57s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.71s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.64s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.66s/it][A100%|██████████| 3/3 [00:10<00:00,  3.66s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.65s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.68s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.74s/it][A100%|██████████| 3/3 [00:11<00:00,  3.72s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.92s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.81s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.73s/it][A100%|██████████| 3/3 [00:11<00:00,  3.76s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.82s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.89s/it][A
+100%|██████████| 3/3 [00:11<00:00,  3.92s/it][A100%|██████████| 3/3 [00:11<00:00,  3.91s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.65s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.63s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.59s/it][A100%|██████████| 3/3 [00:10<00:00,  3.61s/it]
+
+  0%|          | 0/3 [00:00<?, ?it/s][A
+ 33%|███▎      | 1/3 [00:03<00:07,  3.66s/it][A
+ 67%|██████▋   | 2/3 [00:07<00:03,  3.64s/it][A
+100%|██████████| 3/3 [00:10<00:00,  3.63s/it][A100%|██████████| 3/3 [00:10<00:00,  3.63s/it]
+[eval] pred non-finite: nan=0 inf=0 min=0.0000 max=6.8580
+/usr/local/fbcode/platform010/lib/python3.12/functools.py:912: ImplicitModificationWarning: Transforming to str index.
+  return dispatch(args[0].__class__)(*args, **kw)
+/usr/local/fbcode/platform010/lib/python3.12/functools.py:912: ImplicitModificationWarning: Transforming to str index.
+  return dispatch(args[0].__class__)(*args, **kw)
+WARNING:cell_eval._evaluator:Output directory ./result/verify_baseline/norman-origin-gamma_0.1-pertfunc_crisper-split_additive-fold_1-negedge_True-wire_True-repo_True-endpoint_deg_sinkhorn_sparse-precision_epsilon_0.1-sliced_top_frac_0.1-n_slices_128-sparse_lambda_0.1-velocity_gate_True-scm_False-ia_0.0-seed_42/iteration_1 already exists, potential overwrite occurring
+INFO:cell_eval._evaluator:Input is found to be log-normalized already - skipping transformation.
+INFO:cell_eval._evaluator:Input is found to be log-normalized already - skipping transformation.
+INFO:cell_eval._evaluator:Computing DE for real data
+INFO:pdex._single_cell:Precomputing masks for each target gene
+
+Identifying target masks:   0%|          | 0/41 [00:00<?, ?it/s][AIdentifying target masks: 100%|██████████| 41/41 [00:00<00:00, 2699.25it/s]
+INFO:pdex._single_cell:Precomputing variable indices for each feature
+
+Identifying variable indices:   0%|          | 0/1000 [00:00<?, ?it/s][AIdentifying variable indices: 100%|██████████| 1000/1000 [00:00<00:00, 2490679.33it/s]
+INFO:pdex._single_cell:Creating shared memory memory matrix for parallel computing
+INFO:pdex._single_cell:Creating generator of all combinations: N=41000
+INFO:pdex._single_cell:Creating generator of all batches: N=411
+INFO:pdex._single_cell:Initializing parallel processing pool
+INFO:pdex._single_cell:Processing batches
+
+Processing batches:   0%|          | 0/411 [00:00<?, ?it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:   3%|▎         | 11/411 [00:00<00:09, 40.34it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:   4%|▍         | 16/411 [00:00<00:11, 35.43it/s][A
+Processing batches:   8%|▊         | 34/411 [00:00<00:04, 76.53it/s][A
+Processing batches:  12%|█▏        | 49/411 [00:00<00:04, 81.04it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  16%|█▌        | 64/411 [00:00<00:03, 96.23it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  18%|█▊        | 76/411 [00:00<00:03, 102.13it/s][A
+Processing batches:  22%|██▏       | 89/411 [00:01<00:03, 106.05it/s][A
+Processing batches:  25%|██▍       | 101/411 [00:01<00:03, 102.75it/s][A
+Processing batches:  29%|██▉       | 119/411 [00:01<00:02, 119.27it/s][A
+Processing batches:  32%|███▏      | 132/411 [00:01<00:02, 103.37it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  38%|███▊      | 157/411 [00:01<00:02, 117.61it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  41%|████      | 169/411 [00:01<00:02, 107.40it/s][A
+Processing batches:  44%|████▍     | 180/411 [00:01<00:02, 105.89it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  49%|████▉     | 202/411 [00:02<00:01, 111.81it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  52%|█████▏    | 215/411 [00:02<00:01, 115.21it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+Processing batches:  57%|█████▋    | 234/411 [00:02<00:01, 116.95it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  60%|█████▉    | 246/411 [00:02<00:01, 114.64it/s][A
+Processing batches:  64%|██████▎   | 262/411 [00:02<00:01, 116.33it/s][A
+Processing batches:  67%|██████▋   | 274/411 [00:02<00:01, 106.58it/s][A
+Processing batches:  69%|██████▉   | 285/411 [00:02<00:01, 104.83it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  73%|███████▎  | 299/411 [00:02<00:00, 112.74it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  76%|███████▌  | 313/411 [00:03<00:00, 102.95it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  81%|████████  | 331/411 [00:03<00:00, 120.06it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  84%|████████▎ | 344/411 [00:03<00:00, 120.11it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  87%|████████▋ | 357/411 [00:03<00:00, 104.40it/s][A/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+/home/wangmengbo/spear_venv/lib/python3.12/site-packages/scipy/stats/_mannwhitneyu.py:157: RuntimeWarning: invalid value encountered in sqrt
+  s = xp.sqrt(n1*n2/12 * ((n + 1) - tie_term/(n*(n-1))))
+
+Processing batches:  90%|████████▉ | 368/411 [00:03<00:00, 103.70it/s][A
+Processing batches:  92%|█████████▏| 380/411 [00:03<00:00, 105.57it/s][A
+Processing batches:  95%|█████████▌| 391/411 [00:03<00:00, 105.56it/s][AProcessing batches: 100%|█████████▉| 410/411 [00:03<00:00, 106.35it/s]
+INFO:pdex._single_cell:Flattening results
+INFO:pdex._single_cell:Closing shared memory pool
+INFO:cell_eval._evaluator:Writing real DE results to: real_de.csv
+INFO:cell_eval._evaluator:Computing DE for pred data
+INFO:pdex._single_cell:Precomputing masks for each target gene
+
+Identifying target masks:   0%|          | 0/41 [00:00<?, ?it/s][AIdentifying target masks: 100%|██████████| 41/41 [00:00<00:00, 2817.27it/s]
+INFO:pdex._single_cell:Precomputing variable indices for each feature
+
+Identifying variable indices:   0%|          | 0/1000 [00:00<?, ?it/s][AIdentifying variable indices: 100%|██████████| 1000/1000 [00:00<00:00, 1984999.53it/s]
+INFO:pdex._single_cell:Creating shared memory memory matrix for parallel computing
+INFO:pdex._single_cell:Creating generator of all combinations: N=41000
+INFO:pdex._single_cell:Creating generator of all batches: N=411
+INFO:pdex._single_cell:Initializing parallel processing pool
+INFO:pdex._single_cell:Processing batches
+
+Processing batches:   0%|          | 0/411 [00:00<?, ?it/s][A
+Processing batches:   3%|▎         | 11/411 [00:00<00:12, 31.88it/s][A
+Processing batches:  10%|█         | 43/411 [00:00<00:03, 113.02it/s][A
+Processing batches:  15%|█▌        | 62/411 [00:00<00:03, 95.61it/s] [A
+Processing batches:  19%|█▉        | 80/411 [00:00<00:03, 96.32it/s][A
+Processing batches:  23%|██▎       | 93/411 [00:00<00:03, 102.50it/s][A
+Processing batches:  27%|██▋       | 109/411 [00:01<00:02, 112.81it/s][A
+Processing batches:  30%|██▉       | 122/411 [00:01<00:02, 100.33it/s][A
+Processing batches:  35%|███▌      | 145/411 [00:01<00:02, 112.85it/s][A
+Processing batches:  38%|███▊      | 158/411 [00:01<00:02, 112.52it/s][A
+Processing batches:  43%|████▎     | 176/411 [00:01<00:02, 112.83it/s][A
+Processing batches:  47%|████▋     | 193/411 [00:01<00:01, 124.68it/s][A
+Processing batches:  50%|█████     | 207/411 [00:01<00:01, 122.51it/s][A
+Processing batches:  54%|█████▎    | 220/411 [00:02<00:01, 108.08it/s][A
+Processing batches:  60%|██████    | 247/411 [00:02<00:01, 125.28it/s][A
+Processing batches:  65%|██████▍   | 267/411 [00:02<00:01, 125.39it/s][A
+Processing batches:  69%|██████▉   | 285/411 [00:02<00:01, 124.23it/s][A
+Processing batches:  74%|███████▍  | 306/411 [00:02<00:00, 126.60it/s][A
+Processing batches:  80%|████████  | 329/411 [00:02<00:00, 133.83it/s][A
+Processing batches:  83%|████████▎ | 343/411 [00:03<00:00, 125.21it/s][A
+Processing batches:  89%|████████▉ | 366/411 [00:03<00:00, 134.80it/s][A
+Processing batches:  92%|█████████▏| 380/411 [00:03<00:00, 127.04it/s][A
+Processing batches:  98%|█████████▊| 404/411 [00:03<00:00, 145.91it/s][AProcessing batches: 100%|█████████▉| 410/411 [00:03<00:00, 119.23it/s]
+INFO:pdex._single_cell:Flattening results
+INFO:pdex._single_cell:Closing shared memory pool
+INFO:cell_eval._evaluator:Writing pred DE results to: pred_de.csv
+INFO:cell_eval._pipeline._runner:Computing metric 'overlap_at_N'
+INFO:cell_eval._pipeline._runner:Computing metric 'overlap_at_50'
+INFO:cell_eval._pipeline._runner:Computing metric 'overlap_at_100'
+INFO:cell_eval._pipeline._runner:Computing metric 'overlap_at_200'
+INFO:cell_eval._pipeline._runner:Computing metric 'overlap_at_500'
+INFO:cell_eval._pipeline._runner:Computing metric 'precision_at_N'
+INFO:cell_eval._pipeline._runner:Computing metric 'precision_at_50'
+INFO:cell_eval._pipeline._runner:Computing metric 'precision_at_100'
+INFO:cell_eval._pipeline._runner:Computing metric 'precision_at_200'
+INFO:cell_eval._pipeline._runner:Computing metric 'precision_at_500'
+INFO:cell_eval._pipeline._runner:Computing metric 'de_spearman_sig'
+INFO:cell_eval._pipeline._runner:Computing metric 'de_direction_match'
+INFO:cell_eval._pipeline._runner:Computing metric 'de_spearman_lfc_sig'
+INFO:cell_eval._pipeline._runner:Computing metric 'de_sig_genes_recall'
+INFO:cell_eval._pipeline._runner:Computing metric 'de_nsig_counts'
+INFO:cell_eval._pipeline._runner:Computing metric 'pr_auc'
+INFO:cell_eval._pipeline._runner:Computing metric 'roc_auc'
+INFO:cell_eval._pipeline._runner:Computing metric 'pearson_delta'
+INFO:cell_eval._types._anndata:Building pseudobulk embeddings for real anndata on: .X
+INFO:cell_eval._types._anndata:Building pseudobulk embeddings for predicted anndata on: .X
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 1557.02it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'mse'
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 2386.86it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'mae'
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 2410.38it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'mse_delta'
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 2338.61it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'mae_delta'
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 2256.25it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'discrimination_score_l1'
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 37803.55it/s]
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 44967.08it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'discrimination_score_l2'
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 41445.69it/s]
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 44150.57it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'discrimination_score_cosine'
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 40593.31it/s]
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:00<00:00, 44537.34it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'pearson_edistance'
+INFO:cell_eval.metrics._anndata:Precomputing sigma for control data (real)
+INFO:cell_eval.metrics._anndata:Precomputing sigma for control data (pred)
+
+Iterating over perturbations...:   0%|          | 0/40 [00:00<?, ?it/s][A
+Iterating over perturbations...:   2%|▎         | 1/40 [00:00<00:19,  1.99it/s][A
+Iterating over perturbations...:   5%|▌         | 2/40 [00:01<00:20,  1.83it/s][A
+Iterating over perturbations...:   8%|▊         | 3/40 [00:01<00:20,  1.83it/s][A
+Iterating over perturbations...:  10%|█         | 4/40 [00:01<00:14,  2.52it/s][A
+Iterating over perturbations...:  12%|█▎        | 5/40 [00:01<00:10,  3.36it/s][A
+Iterating over perturbations...:  15%|█▌        | 6/40 [00:02<00:08,  4.14it/s][A
+Iterating over perturbations...:  18%|█▊        | 7/40 [00:03<00:16,  2.06it/s][A
+Iterating over perturbations...:  20%|██        | 8/40 [00:03<00:14,  2.17it/s][A
+Iterating over perturbations...:  22%|██▎       | 9/40 [00:03<00:11,  2.79it/s][A
+Iterating over perturbations...:  25%|██▌       | 10/40 [00:04<00:12,  2.43it/s][A
+Iterating over perturbations...:  28%|██▊       | 11/40 [00:04<00:09,  3.01it/s][A
+Iterating over perturbations...:  30%|███       | 12/40 [00:04<00:10,  2.73it/s][A
+Iterating over perturbations...:  32%|███▎      | 13/40 [00:04<00:08,  3.30it/s][A
+Iterating over perturbations...:  35%|███▌      | 14/40 [00:04<00:06,  4.03it/s][A
+Iterating over perturbations...:  38%|███▊      | 15/40 [00:05<00:05,  4.70it/s][A
+Iterating over perturbations...:  40%|████      | 16/40 [00:05<00:04,  5.40it/s][A
+Iterating over perturbations...:  42%|████▎     | 17/40 [00:05<00:03,  6.20it/s][A
+Iterating over perturbations...:  45%|████▌     | 18/40 [00:05<00:03,  6.99it/s][A
+Iterating over perturbations...:  48%|████▊     | 19/40 [00:05<00:02,  7.63it/s][A
+Iterating over perturbations...:  52%|█████▎    | 21/40 [00:06<00:04,  4.42it/s][A
+Iterating over perturbations...:  55%|█████▌    | 22/40 [00:06<00:03,  4.82it/s][A
+Iterating over perturbations...:  57%|█████▊    | 23/40 [00:06<00:05,  3.29it/s][A
+Iterating over perturbations...:  60%|██████    | 24/40 [00:07<00:04,  3.36it/s][A
+Iterating over perturbations...:  62%|██████▎   | 25/40 [00:07<00:04,  3.12it/s][A
+Iterating over perturbations...:  65%|██████▌   | 26/40 [00:07<00:04,  3.00it/s][A
+Iterating over perturbations...:  68%|██████▊   | 27/40 [00:08<00:03,  3.63it/s][A
+Iterating over perturbations...:  70%|███████   | 28/40 [00:08<00:04,  2.82it/s][A
+Iterating over perturbations...:  72%|███████▎  | 29/40 [00:09<00:03,  2.76it/s][A
+Iterating over perturbations...:  75%|███████▌  | 30/40 [00:09<00:03,  2.68it/s][A
+Iterating over perturbations...:  78%|███████▊  | 31/40 [00:09<00:02,  3.35it/s][A
+Iterating over perturbations...:  80%|████████  | 32/40 [00:09<00:02,  3.22it/s][A
+Iterating over perturbations...:  82%|████████▎ | 33/40 [00:10<00:01,  3.92it/s][A
+Iterating over perturbations...:  85%|████████▌ | 34/40 [00:10<00:01,  3.20it/s][A
+Iterating over perturbations...:  88%|████████▊ | 35/40 [00:10<00:01,  2.83it/s][A
+Iterating over perturbations...:  90%|█████████ | 36/40 [00:11<00:01,  3.47it/s][A
+Iterating over perturbations...:  92%|█████████▎| 37/40 [00:11<00:00,  4.22it/s][A
+Iterating over perturbations...:  95%|█████████▌| 38/40 [00:11<00:00,  4.39it/s][A
+Iterating over perturbations...:  98%|█████████▊| 39/40 [00:11<00:00,  4.25it/s][A
+Iterating over perturbations...: 100%|██████████| 40/40 [00:12<00:00,  3.40it/s][AIterating over perturbations...: 100%|██████████| 40/40 [00:12<00:00,  3.32it/s]
+INFO:cell_eval._pipeline._runner:Computing metric 'clustering_agreement'
+INFO:cell_eval._evaluator:Writing perturbation level metrics to ./result/verify_baseline/norman-origin-gamma_0.1-pertfunc_crisper-split_additive-fold_1-negedge_True-wire_True-repo_True-endpoint_deg_sinkhorn_sparse-precision_epsilon_0.1-sliced_top_frac_0.1-n_slices_128-sparse_lambda_0.1-velocity_gate_True-scm_False-ia_0.0-seed_42/iteration_1/results.csv
+INFO:cell_eval._evaluator:Writing aggregate metrics to ./result/verify_baseline/norman-origin-gamma_0.1-pertfunc_crisper-split_additive-fold_1-negedge_True-wire_True-repo_True-endpoint_deg_sinkhorn_sparse-precision_epsilon_0.1-sliced_top_frac_0.1-n_slices_128-sparse_lambda_0.1-velocity_gate_True-scm_False-ia_0.0-seed_42/iteration_1/agg_results.csv
+... storing 'perturbation' as categorical
+... storing 'perturbation' as categorical
+Current evaluation score: 40.0000
+loss: 0.5624, iteration: 0: 100%|██████████| 2/2 [08:22<00:00, 294.84s/it]loss: 0.6455, iteration: 1: 100%|██████████| 2/2 [08:22<00:00, 294.84s/it]loss: 0.6455, iteration: 1: 100%|██████████| 2/2 [09:03<00:00, 271.84s/it]

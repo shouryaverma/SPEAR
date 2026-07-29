@@ -1,1 +1,2 @@
-result/additive/norman-origin-gamma_0.1-pertfunc_crisper-split_additive-fold_1-negedge_True-wire_True-repo_True-endpoint_deg_sinkhorn_sparse-precision_epsilon_0.1-sliced_top_frac_0.1-n_slices_128-sparse_lambda_0.1-velocity_gate_True/iteration_295000/checkpoint.pt filter=lfs diff=lfs merge=lfs -text
+*.pt filter=lfs diff=lfs merge=lfs -text
+*.h5ad filter=lfs diff=lfs merge=lfs -text

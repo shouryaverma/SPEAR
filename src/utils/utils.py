@@ -82,11 +82,18 @@ def save_checkpoint(model, optimizer, scheduler, iteration, eval_score, save_pat
         print(f"save best checkpoint: {best_path}")
 
 def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None):
-    """load checkpoint"""
+    """load checkpoint. Strips a leading '_orig_mod.' (torch.compile) prefix so a
+    compiled-model checkpoint loads into an uncompiled model. strict=False lets extra
+    heads (e.g. a zero-init causal head added for finetuning) stay at their init."""
     if os.path.exists(checkpoint_path):
         checkpoint = torch.load(checkpoint_path, map_location='cpu')
         model_to_load = model.module if hasattr(model, 'module') else model
-        model_to_load.load_state_dict(checkpoint['model_state_dict'], strict=False)
+        sd = checkpoint['model_state_dict']
+        sd = {(k[len('_orig_mod.'):] if k.startswith('_orig_mod.') else k): v for k, v in sd.items()}
+        result = model_to_load.load_state_dict(sd, strict=False)
+        n_loaded = len(sd) - len(result.unexpected_keys)
+        print(f"[load_checkpoint] loaded {n_loaded}/{len(sd)} tensors; "
+              f"missing(new-head)={len(result.missing_keys)}, unexpected={len(result.unexpected_keys)}")
         if optimizer is not None:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if scheduler is not None:
@@ -115,6 +122,11 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None):
 
 def process_vocab(data_manager, config):
     vocab_path = os.path.join('src/tokenizer', config.data_name + '_' + str(config.n_top_genes) + '_highly_vocab.json')
+    # Load if cached (deterministic given data + n_top_genes). Re-saving every run races
+    # across concurrent jobs (one reads a half-written JSON -> JSONDecodeError).
+    if os.path.exists(vocab_path):
+        print('##### loading vocab from cache #####')
+        return GeneVocab.from_file(vocab_path)
     print('##### building vocab #####')
     gene_list = list(data_manager.adata.var_names)
     vocab = GeneVocab(gene_list, specials=['<pad>', '<cls>', '<mask>', 'control'])

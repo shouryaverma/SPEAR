@@ -8,6 +8,7 @@ from timm.models.vision_transformer import Mlp
 from .layers import (GeneadaLN, ContinuousValueEncoder, GeneEncoder,
                      BatchLabelEncoder, TimestepEmbedder, ExprDecoder)
 from .blocks import MultiheadDiffAttn, modulate, GeneREPO
+from src.models.perturbation.sams_vae import SparseAdditiveMechanismShift
 
 
 class DifferentialTransformerBlock(nn.Module):
@@ -108,8 +109,14 @@ class model(nn.Module):
                  use_wire: bool = True,
                  use_repo: bool = True,
                  use_velocity_gate: bool = True,
+                 use_samsvae: bool = False,
+                 samsvae_control_id: int = None,
+                 samsvae_pert_vocab_ids=None,
+                 samsvae_latent_dim: int = 64,
+                 samsvae_mask_prior: str = 'l1',
                  ):
         super().__init__()
+        self.use_samsvae = use_samsvae
         self.t_embedder = TimestepEmbedder(d_model)
         self.perturbation_embedder = BatchLabelEncoder(ntoken, d_model)
         self.fusion_method = fusion_method
@@ -168,6 +175,26 @@ class model(nn.Module):
         self.final_layer = ExprDecoder(d_model, explicit_zero_prob=False, use_batch_labels=True)
         self.initialize_weights()
 
+        # SAMS-VAE head. Built AFTER initialize_weights so its zero-init `to_dmodel`
+        # (no-op residual) survives _basic_init. Save/restore the RNG state around
+        # construction so that turning use_samsvae on/off does NOT shift the global RNG
+        # stream (otherwise velocity_gate init and every per-step noise draw would differ,
+        # confounding the on/off ablation).
+        if use_samsvae:
+            _rng = torch.random.get_rng_state()
+            _crng = torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None
+            # Per-perturbation sparse additive mechanism shift in a latent space, decoded
+            # (zero-init -> no-op) to the perturbation-emb residual. Identifiability from
+            # the sparse-mask prior.
+            self.samsvae = SparseAdditiveMechanismShift(
+                d_model, latent_dim=samsvae_latent_dim,
+                pert_vocab_ids=samsvae_pert_vocab_ids, vocab_size=ntoken,
+                control_id=samsvae_control_id, mask_prior=samsvae_mask_prior,
+            )
+            torch.random.set_rng_state(_rng)
+            if _crng is not None:
+                torch.cuda.set_rng_state_all(_crng)
+
         self.use_velocity_gate = use_velocity_gate
         if use_velocity_gate:
             self.velocity_gate = nn.Sequential(
@@ -196,10 +223,14 @@ class model(nn.Module):
         assert perturbation_emb is None or perturbation_id is None
         if perturbation_id is not None:
             if self.perturbation_function == 'crisper':
-                perturbation_emb = self.encoder(perturbation_id)
+                tok_emb = self.encoder(perturbation_id)            # (B, n_comb, d)
+                perturbation_emb = tok_emb.mean(1)
+                if self.use_samsvae:
+                    # Sparse additive mechanism shift as a residual (zero-init -> no-op at init).
+                    perturbation_emb = perturbation_emb + self.samsvae(perturbation_id)
             else:
                 perturbation_emb = self.perturbation_embedder(perturbation_id)
-            perturbation_emb = perturbation_emb.mean(1)
+                perturbation_emb = perturbation_emb.mean(1)
         elif perturbation_emb is not None:
             perturbation_emb = perturbation_emb.to(cell_1.device, dtype=cell_1.dtype)
             if perturbation_emb.dim() == 1:
@@ -208,6 +239,16 @@ class model(nn.Module):
                 perturbation_emb = perturbation_emb.expand(cell_1.shape[0], -1).contiguous()
             perturbation_emb = self.perturbation_embedder.enc_norm(perturbation_emb)
         return perturbation_emb
+
+    def samsvae_regularizer(self, perturbation_id, lambda_mask):
+        """SAMS-VAE sparse-mechanism-shift prior (mask L1 / expected-L0). Returns a scalar
+        with grad to the head params. Called on the unwrapped model."""
+        return self.samsvae.sparsity_penalty(lambda_mask)
+
+    @torch.no_grad()
+    def samsvae_stats(self, perturbation_id):
+        """SAMS-VAE-head activity diagnostics for the current batch (B3 instrumentation)."""
+        return self.samsvae.stats(perturbation_id)
 
     def forward(self, gene_id, cell_1, t, cell_2, perturbation_id=None, gene_id_all=None,
                 perturbation_emb=None, mode="predict_y"):
