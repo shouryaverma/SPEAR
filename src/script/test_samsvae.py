@@ -1,6 +1,6 @@
 """Standalone unit test for the SAMS-VAE head (no data / GPU needed)."""
 import torch
-from src.models.perturbation.sams_vae import SparseAdditiveMechanismShift
+from src.models.origin.sams_vae import SparseAdditiveMechanismShift
 
 torch.manual_seed(0)
 d_model, L = 128, 32

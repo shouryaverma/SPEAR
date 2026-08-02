@@ -94,6 +94,14 @@ def load_checkpoint(checkpoint_path, model, optimizer=None, scheduler=None):
         n_loaded = len(sd) - len(result.unexpected_keys)
         print(f"[load_checkpoint] loaded {n_loaded}/{len(sd)} tensors; "
               f"missing(new-head)={len(result.missing_keys)}, unexpected={len(result.unexpected_keys)}")
+        if result.missing_keys:
+            print(f"[load_checkpoint] MISSING (left at init): {result.missing_keys[:8]}"
+                  f"{' ...' if len(result.missing_keys) > 8 else ''}")
+        if optimizer is not None and any(k.startswith('samsvae.') for k in result.missing_keys):
+            raise RuntimeError(
+                "Resume (optimizer supplied) but checkpoint has no samsvae.* tensors; the "
+                "causal head would silently restart from zero-init. Use --finetune to load "
+                "a non-causal checkpoint into a causal model.")
         if optimizer is not None:
             optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         if scheduler is not None:

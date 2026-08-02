@@ -37,7 +37,10 @@ def median_sigmas(X, scales=(0.5, 1.0, 2.0, 4.0)):
     s2 = torch.tensor(scales, device=X.device) * m
     return [float(s.item()) for s in torch.sqrt(s2)]
 
+
 def mmd2_unbiased_multi_sigma(X, Y, sigmas):
+    X = X.float()
+    Y = Y.float()
     m, n = X.size(0), Y.size(0)
     Dxx = pairwise_sq_dists(X, X)
     Dyy = pairwise_sq_dists(Y, Y)
@@ -53,6 +56,11 @@ def mmd2_unbiased_multi_sigma(X, Y, sigmas):
         term_xy = Kxy.mean()
         vals.append(term_xx + term_yy - 2.0 * term_xy)
     return torch.stack(vals).mean()
+
+
+def mmd_endpoint(X, Y, scales=(0.5, 1.0, 2.0, 4.0)):
+    sigmas = median_sigmas(Y, scales=scales)
+    return mmd2_unbiased_multi_sigma(X, Y, sigmas)
 
 
 def compute_deg_weights(train_sampler, epsilon=0.1):
@@ -86,6 +94,8 @@ def compute_deg_weights(train_sampler, epsilon=0.1):
         if name == 'control+control':
             continue
         mask = cond == name
+        if mask.sum() == 0:
+            continue
         if mask.sum() == 0:
             continue
         lfc = np.abs(X[mask].mean(0) - ctrl_mean)
@@ -126,15 +136,6 @@ def sinkhorn_divergence(X, Y, eps, n_iters, w=None):
             - 0.5 * sinkhorn_value(weighted_sqdist(Y, Y, w), eps, n_iters))
 
 def sliced_w2(X, Y, w=None, n_projections=128, top_frac=0.1):
-    """
-    Squared sliced Wasserstein-2 between equal-size point clouds X, Y ((n, d)).
-    Random unit directions -> 1D sort -> squared sorted difference. Loss is the
-    mean over the largest top_frac of projections: top_frac -> 0 gives max-sliced
-    (worst-case direction), top_frac == 1.0 gives plain averaged sliced-W2.
-    w: (d,) per-gene weights; columns are scaled by sqrt(w) before projecting so
-    DE genes stretch the geometry and dominate the worst-case slice.
-    Requires X.shape[0] == Y.shape[0].
-    """
     X = X.float()
     Y = Y.float()
     if w is not None:
@@ -152,12 +153,6 @@ def sliced_w2(X, Y, w=None, n_projections=128, top_frac=0.1):
 
 
 def compute_precision_weights(train_sampler, epsilon=0.1):
-    """
-    Global per-gene weight from inverse control variance (heteroscedastic-noise
-    correction): high-baseline-noise genes are down-weighted, unlike DEG which
-    up-weights movers. w_i = epsilon + (1 - epsilon) * prec_i / max_j prec_j,
-    prec_i = 1 / (Var_ctrl[i] + 1e-8). Returns (n_genes,) CPU tensor.
-    """
     adata = train_sampler.adata
     X = adata.X
     if hasattr(X, "toarray"):
@@ -214,26 +209,35 @@ def train_step(source, target, perturbation_id, vf, accelerator,
         endpoint_type = getattr(config, 'endpoint_loss', 'mmd')
         if endpoint_type != 'none':
             w = None
-            deg_types = ('deg_mse', 'deg_sinkhorn', 'deg_max_sliced', 'deg_sinkhorn_sparse')
-            if (deg_weights is not None and condition_idx is not None and not use_null
-                    and endpoint_type in deg_types):
+            deg_types = ('deg_mse', 'deg_sinkhorn', 'deg_max_sliced',
+                         'deg_sinkhorn_sparse', 'deg_mmd')
+            if endpoint_type in deg_types and not use_null:
+                assert deg_weights is not None and condition_idx is not None, \
+                    f"{endpoint_type} selected but DEG weights were never precomputed"
                 ci = condition_idx
                 if ci.dim() > 1:
+                    assert bool((ci == ci[0]).all()), \
+                        "batch mixes conditions but condition_idx[0] is used as the DEG key"
                     ci = ci[0]
                 key = tuple(sorted(int(v) for v in ci.reshape(-1).tolist()))
                 w_full = deg_weights.get(key, None)
-                if w_full is not None:
-                    w = w_full[input_gene_ids.cpu()].to(device)
-            elif endpoint_type == 'precision_sinkhorn' and precision_weights is not None:
+                w = w_full[input_gene_ids.cpu()].to(device) if w_full is not None else None
+            elif endpoint_type == 'precision_sinkhorn':
+                assert precision_weights is not None, \
+                    "precision_sinkhorn selected but precision weights were never precomputed"
                 w = precision_weights[input_gene_ids.cpu()].to(device)
 
-            if endpoint_type == 'mmd' or (endpoint_type in ('deg_mse', 'deg_sinkhorn') and w is None):
-                sigmas = median_sigmas(target, scales=(0.5, 1.0, 2.0, 4.0))
-                endpoint_loss = mmd2_unbiased_multi_sigma(x1_hat, target, sigmas)
+            if endpoint_type == 'mmd' or (endpoint_type == 'deg_sinkhorn' and w is None):
+                endpoint_loss = mmd_endpoint(x1_hat, target)
+            elif endpoint_type == 'deg_mmd':
+                if w is None:
+                    endpoint_loss = mmd_endpoint(x1_hat, target)
+                else:
+                    s = w.clamp_min(0).sqrt()
+                    endpoint_loss = mmd_endpoint(x1_hat * s, target * s)
             elif endpoint_type == 'deg_mse':
                 weighted_mse = (w * (x1_hat - target) ** 2).mean()
-                sigmas = median_sigmas(target, scales=(1.0, 2.0))
-                endpoint_loss = weighted_mse + 0.1 * mmd2_unbiased_multi_sigma(x1_hat, target, sigmas)
+                endpoint_loss = weighted_mse + 0.1 * mmd_endpoint(x1_hat, target, scales=(1.0, 2.0))
             elif endpoint_type in ('sinkhorn', 'deg_sinkhorn', 'precision_sinkhorn'):
                 eps_scale = getattr(config, 'sinkhorn_eps', 0.1)
                 n_iters = getattr(config, 'sinkhorn_iters', 50)
@@ -242,8 +246,6 @@ def train_step(source, target, perturbation_id, vf, accelerator,
                     med = torch.median(weighted_sqdist(x1_hat_f, target_f, w)).clamp_min(1e-6)
                     eps = (eps_scale * med).clamp_min(1e-3)
                 endpoint_loss = sinkhorn_divergence(x1_hat_f, target_f, eps, n_iters, w=w)
-                if not torch.isfinite(endpoint_loss):
-                    endpoint_loss = torch.zeros((), device=device)
             elif endpoint_type in ('max_sliced', 'deg_max_sliced'):
                 endpoint_loss = sliced_w2(
                     x1_hat, target, w=w,
@@ -266,6 +268,9 @@ def train_step(source, target, perturbation_id, vf, accelerator,
                 endpoint_loss = sink + getattr(config, 'sparse_lambda', 0.1) * sparse
             else:
                 raise ValueError(f"Unknown endpoint_loss: {endpoint_type}")
+
+            if not torch.isfinite(endpoint_loss):
+                endpoint_loss = torch.zeros((), device=device)
 
             loss = loss + endpoint_loss * config.gamma
 
@@ -352,10 +357,15 @@ def _test_impl(data_sampler, vf, accelerator, batch_size=128, path='./', vocab=N
         perturbation_id = perturbation_data['condition_id'].to(device)
         source = control_data['src_cell_data'].to(device)
         if config.perturbation_function == 'crisper':
-            names = [inverse_dict[int(p_id)] for p_id in perturbation_id[0].cpu().numpy()]
-            if all(name in vocab.stoi for name in names):
-                perturbation_id = torch.tensor(vocab.encode(names), dtype=torch.long, device=device)
-                perturbation_id = perturbation_id.repeat(source.shape[0], 1)
+                names = [inverse_dict[int(p_id)] for p_id in perturbation_id[0].cpu().numpy()]
+                if all(name in vocab.stoi for name in names):
+                    perturbation_id = torch.tensor(vocab.encode(names), dtype=torch.long, device=device)
+                    perturbation_id = perturbation_id.repeat(source.shape[0], 1)
+                elif config.use_samsvae:
+                    raise RuntimeError(
+                        f"SAMS-VAE indexes pert_to_row by VOCAB token id, but condition "
+                        f"{names} is not fully in the vocab so perturbation_id stayed in "
+                        f"perturbation_dict id space. Mechanism attribution would be wrong.")
 
         idx = torch.randperm(source.shape[0])
         source = source[idx]
@@ -479,7 +489,7 @@ if __name__ == "__main__":
             eigvec_dim = getattr(config, 'wire_eigvec_dim', 32)
             hvg_gene_names = list(data_manager.adata.var_names)
             gene_token_ids = vocab.encode(hvg_gene_names)
-            ntoken_local = max(gene_token_ids) + 1
+            ntoken_local = len(vocab)
             X = data_manager.adata_train.X
             if hasattr(X, 'toarray'):
                 X = X.toarray()
@@ -489,6 +499,10 @@ if __name__ == "__main__":
             for pos, token_id in enumerate(gene_token_ids):
                 spectral_coords[token_id] = torch.from_numpy(coords_hvg[pos])
             torch.save(spectral_coords, wire_path)
+        _wire_rows = torch.load(wire_path, weights_only=True).shape[0]
+        assert _wire_rows == len(vocab), (
+            f"wire eigvec rows {_wire_rows} != vocab {len(vocab)}; delete {wire_path} "
+            f"and rerun precompute_wire_once.sh")
         model_wire_path = wire_path
     else:
         model_wire_path = None
@@ -513,6 +527,7 @@ if __name__ == "__main__":
         wire_path=model_wire_path,
         use_wire=config.use_wire,
         use_repo=config.use_repo,
+        neighbor_cap=config.neighbor_cap,
         use_velocity_gate=config.use_velocity_gate,
         use_samsvae=config.use_samsvae,
         samsvae_control_id=(vocab['control'] if 'control' in vocab.stoi else None),
@@ -571,7 +586,7 @@ if __name__ == "__main__":
         start_iteration = config.steps
 
     deg_weights = None
-    if getattr(config, 'endpoint_loss', 'mmd') in ('deg_mse', 'deg_sinkhorn', 'deg_max_sliced', 'deg_sinkhorn_sparse'):
+    if getattr(config, 'endpoint_loss', 'mmd') in ('deg_mmd', 'deg_sinkhorn', 'deg_max_sliced', 'deg_sinkhorn_sparse'):
         if accelerator.is_main_process:
             print("Precomputing DEG weights...")
         deg_weights = compute_deg_weights(train_sampler, epsilon=getattr(config, 'deg_epsilon', 0.1))
@@ -590,6 +605,7 @@ if __name__ == "__main__":
 
     vf = accelerator.prepare(vf)
     if os.environ.get("SPEAR_COMPILE", "0") == "1":
+        torch._dynamo.config.cache_size_limit = 64
         vf = torch.compile(vf, mode="max-autotune")
     optimizer, scheduler, dataloader = accelerator.prepare(optimizer, scheduler, dataloader)
     inverse_dict = {v: str(k) for k, v in data_manager.perturbation_dict.items()}
@@ -606,11 +622,16 @@ if __name__ == "__main__":
             perturbation_id = batch_data['condition_id'].squeeze(0).to(device)
             if config.perturbation_function == 'crisper':
                 names = [inverse_dict[int(p_id)] for p_id in perturbation_id[0].cpu().numpy()]
-                if all(name in vocab.stoi for name in names):
-                    perturbation_id = torch.tensor(vocab.encode(names), dtype=torch.long, device=device)
-                    perturbation_id = perturbation_id.repeat(source.shape[0], 1)
+                if not all(name in vocab.stoi for name in names):
+                    raise RuntimeError(
+                        f"condition {names} not fully in vocab; perturbation_id would stay in "
+                        f"perturbation_dict id space and index the gene embedding table with "
+                        f"unrelated integers")
+                perturbation_id = torch.tensor(vocab.encode(names), dtype=torch.long, device=device)
+                perturbation_id = perturbation_id.repeat(source.shape[0], 1)
 
-            set_requires_grad_for_p_only(vf, p_only=config.mode)
+            if not (config.use_samsvae and getattr(config, 'samsvae_freeze_base', False)):
+                set_requires_grad_for_p_only(vf, p_only=config.mode)
 
             scm_scale = 1.0
             if config.use_samsvae and getattr(config, 'samsvae_warmup_steps', 0) > 0:
@@ -622,9 +643,12 @@ if __name__ == "__main__":
                             precision_weights=precision_weights, scm_lambda_scale=scm_scale)
 
             optimizer.zero_grad(set_to_none=True)
-            accelerator.backward(loss)
-            accelerator.clip_grad_norm_(vf.parameters(), max_norm=1.0)
-            optimizer.step()
+            if torch.isfinite(loss):
+                accelerator.backward(loss)
+                accelerator.clip_grad_norm_(vf.parameters(), max_norm=1.0)
+                optimizer.step()
+            elif accelerator.is_main_process:
+                print(f"[warn] non-finite loss at iteration {iteration}, step skipped")
             scheduler.step()
 
             # SAMS-VAE activity instrumentation (B3): confirm the head is not collapsing

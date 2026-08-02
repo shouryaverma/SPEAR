@@ -233,61 +233,76 @@ class Data:
                     with open(split_file, 'rb') as f:
                         self.split_results = pickle.load(f)
                 else:
+                    perturbations = np.unique(self.adata.obs['condition'])
+                    # conditions are already normalized: 'control', 'GENE+control', 'A+B'
+                    double_perturbation = [
+                        p for p in perturbations
+                        if p != 'control' and 'control' not in p.split('+')
+                    ]
+                    single_conditions = set(p for p in perturbations if p.endswith('+control'))
+                    genes = sorted(set(
+                        g for p in double_perturbation for g in p.split('+')
+                    ))
+                    if len(genes) == 0:
+                        raise ValueError(f'{self.data_name} has no double perturbations; '
+                                         f'split_method=unseen is undefined')
+                    n_hold = min(12, max(1, len(genes) // 4))
+
                     self.split_results = []
                     for i in range(5):
-                        perturbations = np.unique(self.adata.obs['condition'])
-                        double_perturbation = [p for p in perturbations if 'ctrl' not in p]
-                        single = []
-                        [single.extend(p.split('+')) for p in double_perturbation]
-                        single = list(set(single))
-                    
-                        shuffle(single)
-                        remove_genes = single[:12]
+                        rng = np.random.RandomState(42 + i)
+                        shuffled = np.array(genes, dtype=object).copy()
+                        rng.shuffle(shuffled)
+                        remove_genes = set(shuffled[:n_hold].tolist())
+
                         p_count = {}
                         for p in double_perturbation:
                             ps = p.split('+')
-                            if len(ps) < 2:            # skip malformed / single-token conditions
-                                continue
-                            count = int(ps[0] in remove_genes) + int(ps[1] in remove_genes)
-                            p_count[p] = count
-                        double_perturbation = [p for p, count in p_count.items() if count > 0]
-                        double_perturbation = list(double_perturbation)
-                        # norman single-perturbation conditions are 'GENE+ctrl' (not '+control')
-                        remove_genes_condition = [p+'+ctrl' for p in remove_genes]
-                        double_perturbation.extend(remove_genes_condition)
+                            p_count[p] = int(ps[0] in remove_genes) + int(ps[1] in remove_genes)
+                        test = [p for p, c in p_count.items() if c > 0]
+                        # hold out the singles of the removed genes too, otherwise the gene
+                        # is seen in training and the split is not unseen
+                        test.extend([f'{g}+control' for g in sorted(remove_genes)
+                                     if f'{g}+control' in single_conditions])
+
                         self.split_results.append({
+                            'remove_genes': sorted(remove_genes),
                             'p_count': p_count,
-                            'test': double_perturbation
+                            'test': test,
                         })
                     with open(split_file, 'wb') as f:
                         pickle.dump(self.split_results, f)
-                    print('split results unseen saved')
+                    print(f'split results unseen saved: {n_hold} held-out genes, '
+                          f'{len(self.split_results[0]["test"])} test conditions/fold')
             
             elif split_method == 'state_pbmc':
                 DONOR_COL = 'donor'
                 N_HOLDOUT_DONORS = 4
-                HOLDOUT_FRAC = 0.7
 
                 split_file = os.path.join(self.data_path, self.data_name, 'split_results_state_pbmc.pkl')
                 if os.path.exists(split_file):
                     with open(split_file, 'rb') as f:
                         self.split_results = pickle.load(f)
                 else:
-                    all_donors = np.array(self.adata.obs[DONOR_COL].dropna().unique())
+                    obs = self.adata.obs
+                    all_donors = np.array(obs[DONOR_COL].dropna().astype(str).unique())
+                    perturbations = [p for p in obs['condition'].unique() if p != 'control']
+                    donors_of_pert = {
+                        p: set(obs.loc[obs['condition'] == p, DONOR_COL].astype(str).unique())
+                        for p in perturbations
+                    }
                     self.split_results = []
                     for i in range(5):
                         rng = np.random.default_rng(42 + i)
                         held_out_donors = rng.permutation(all_donors)[:N_HOLDOUT_DONORS].tolist()
+                        held_set = set(held_out_donors)
                         donor_test_perturbations = {}
                         for donor in held_out_donors:
-                            donor_mask = self.adata.obs[DONOR_COL] == donor
-                            donor_perts = [
-                                p for p in self.adata.obs.loc[donor_mask, 'condition'].unique()
-                                if 'ctrl' not in p
-                            ]
-                            rng.shuffle(donor_perts)
-                            n_test = max(1, int(len(donor_perts) * HOLDOUT_FRAC))
-                            donor_test_perturbations[donor] = donor_perts[:n_test]
+                            donor_test_perturbations[donor] = sorted(
+                                p for p in perturbations
+                                if donor in donors_of_pert[p]
+                                and len(donors_of_pert[p] - held_set) > 0
+                            )
                         self.split_results.append({
                             'held_out_donors': held_out_donors,
                             'donor_test_perturbations': donor_test_perturbations,
@@ -401,9 +416,12 @@ class Data:
             
             return train_sampler , test_sampler, []
         elif self.data_name in ['norman', 'norman_umi_go_filtered', 'parse_pbmc', 'op3', 'replogle', 'dixit']:
-            train_sampler = TrainSampler(self.data_name, self.adata_train, ["Drug1", "Drug2"], self.perturbation_dict)
-            test_sampler = TestDataset(self.data_name, self.adata_test, ["Drug1", "Drug2"], self.perturbation_dict)
-            return train_sampler , test_sampler, []
+            pair_col = 'donor' if self.data_name == 'parse_pbmc' else None
+            train_sampler = TrainSampler(self.data_name, self.adata_train, ["Drug1", "Drug2"],
+                                         self.perturbation_dict, pair_col=pair_col)
+            test_sampler = TestDataset(self.data_name, self.adata_test, ["Drug1", "Drug2"],
+                                       self.perturbation_dict, pair_col=pair_col)
+            return train_sampler, test_sampler, []
         else:
             raise ValueError(self.data_name + ' is not a valid data name')
             
@@ -420,7 +438,8 @@ class Data:
             raise ValueError(self.data_name + ' is not a valid data name')
         
 class TrainSampler:
-    def __init__(self, data_name, adata: sc.AnnData, perturbation_covariates: list[str], perturbation_dict: dict,):
+    def __init__(self, data_name, adata: sc.AnnData, perturbation_covariates: list[str],
+                 perturbation_dict: dict, pair_col: str = None):
         self.data_name = data_name
         self.adata = adata
         self.perturbation_covariates = perturbation_covariates
@@ -431,90 +450,133 @@ class TrainSampler:
 
         self._perturbation_covariates.sort()
         self.perturbation_covariates_dict = {perturbation: i for i, perturbation in enumerate(self._perturbation_covariates)}
-        
+
         perturbation_covariates_id = [adata.obs[perturbation_covariates[i]].apply(lambda x: perturbation_dict[x])
                                     for i in range(len(perturbation_covariates))]
         self.perturbation_covariates_id = np.array(perturbation_covariates_id).T
-        
-        
+
         self.cells_name = self.adata.obs_names
-        
-        
+
+        pc = self.adata.obs['perturbation_covariates'].to_numpy()
+        self.control_idx = (pc == 'control+control').nonzero()[0]
+        self.idx_by_pert = {p: (pc == p).nonzero()[0] for p in self._perturbation_covariates}
+
+        self.pair_col = pair_col if (pair_col is not None and pair_col in self.adata.obs.columns) else None
+        if self.pair_col is not None:
+            grp = self.adata.obs[self.pair_col].astype(str).to_numpy()
+            self.control_idx_by_group = {}
+            for g in np.unique(grp):
+                idx = ((pc == 'control+control') & (grp == g)).nonzero()[0]
+                if len(idx) > 0:
+                    self.control_idx_by_group[g] = idx
+            self.idx_by_pert_group = {}
+            for p in self._perturbation_covariates:
+                pert_mask = pc == p
+                per_group = {}
+                for g in self.control_idx_by_group:
+                    idx = (pert_mask & (grp == g)).nonzero()[0]
+                    if len(idx) > 0:
+                        per_group[g] = idx
+                self.idx_by_pert_group[p] = per_group
+
     def get_batch(self, batch_size: int, same_perturbation: bool = True):
-        if same_perturbation:
-            # random sample a perturbation from self._perturbation_covariates.
-            # the last one is control
-            perturbation_idx = np.random.choice(len(self._perturbation_covariates), 1)[0]
-            
-            perturbation_id = self._perturbation_covariates[perturbation_idx]
-            
-            # get the target data
-            tgt_idx = (self.adata.obs['perturbation_covariates'] == perturbation_id).to_numpy().nonzero()[0]
-            tgt_batch_idx = np.random.choice(tgt_idx, batch_size)
-            
-            tgt_batch = torch.from_numpy(self.adata.X[tgt_batch_idx].toarray()).float()
-            
-            # get data from control
-            src_idx = (self.adata.obs['perturbation_covariates'] == 'control+control').to_numpy().nonzero()[0]
-            src_batch_idx = np.random.choice(src_idx, batch_size)
-            
-            src_batch = torch.from_numpy(self.adata.X[src_batch_idx].toarray()).float()
-            
-            return {
-                'src_cell_data': src_batch,
-                'tgt_cell_data': tgt_batch,
-                'src_cell_id': self.cells_name[src_batch_idx],
-                'tgt_cell_id': self.cells_name[tgt_batch_idx],
-                'condition_id': self.perturbation_covariates_id[tgt_batch_idx],
-            }
-            
-        else:
+        if not same_perturbation:
             raise ValueError('same_perturbation must be True')
+
+        perturbation_idx = np.random.choice(len(self._perturbation_covariates), 1)[0]
+        perturbation_id = self._perturbation_covariates[perturbation_idx]
+
+        src_idx = self.control_idx
+        tgt_idx = self.idx_by_pert[perturbation_id]
+
+        if self.pair_col is not None:
+            groups = list(self.idx_by_pert_group.get(perturbation_id, {}).keys())
+            if len(groups) > 0:
+                sizes = np.array([len(self.idx_by_pert_group[perturbation_id][g]) for g in groups], dtype=float)
+                g = groups[np.random.choice(len(groups), p=sizes / sizes.sum())]
+                tgt_idx = self.idx_by_pert_group[perturbation_id][g]
+                src_idx = self.control_idx_by_group[g]
+
+        tgt_batch_idx = np.random.choice(tgt_idx, batch_size)
+        src_batch_idx = np.random.choice(src_idx, batch_size)
+
+        tgt_batch = torch.from_numpy(self.adata.X[tgt_batch_idx].toarray()).float()
+        src_batch = torch.from_numpy(self.adata.X[src_batch_idx].toarray()).float()
+
+        return {
+            'src_cell_data': src_batch,
+            'tgt_cell_data': tgt_batch,
+            'src_cell_id': self.cells_name[src_batch_idx],
+            'tgt_cell_id': self.cells_name[tgt_batch_idx],
+            'condition_id': self.perturbation_covariates_id[tgt_batch_idx],
+        }
 
 
 class TestDataset:
-    def __init__(self, data_name,adata: sc.AnnData, perturbation_covariates: list[str], perturbation_dict: dict,):
+    def __init__(self, data_name, adata: sc.AnnData, perturbation_covariates: list[str],
+                 perturbation_dict: dict, pair_col: str = None):
         self.data_name = data_name
         self.adata = adata
         self.perturbation_covariates = perturbation_covariates
         self.adata.obs['perturbation_covariates'] = self.adata.obs[perturbation_covariates].apply(lambda x: '+'.join(x), axis=1)
-        self._perturbation_covariates = np.asarray(adata.obs['perturbation_covariates'].unique(), dtype=object)
 
-        self._perturbation_covariates = self._perturbation_covariates[self._perturbation_covariates != 'control+control']
+        self.pair_col = pair_col if (pair_col is not None and pair_col in self.adata.obs.columns) else None
+        if self.pair_col is None:
+            self.groups = None
+            keys = np.asarray(self.adata.obs['perturbation_covariates'].unique(), dtype=object)
+            keys = keys[keys != 'control+control']
+        else:
+            self.groups = self.adata.obs[self.pair_col].astype(str).to_numpy()
+            pc = self.adata.obs['perturbation_covariates'].to_numpy()
+            non_control = pc != 'control+control'
+            keys = np.asarray(np.unique(
+                np.array([f'{g}|{p}' for g, p in zip(self.groups[non_control], pc[non_control])], dtype=object)
+            ), dtype=object)
 
-        self._perturbation_covariates.sort()
-        # Fixed-seed subset (identical across ablation arms). 40 gives enough held-out
-        # combinations for a stable compositional signal while bounding eval time.
-        n_eval_conditions = int(os.environ.get('SPEAR_N_EVAL_CONDITIONS', '10'))  # match original codebase (was 10)
+        keys.sort()
+        self._perturbation_covariates = keys
+
+        n_eval_conditions = int(os.environ.get('SPEAR_N_EVAL_CONDITIONS', '10'))
         if n_eval_conditions is not None and len(self._perturbation_covariates) > n_eval_conditions:
             rng = np.random.default_rng(42)
             self._perturbation_covariates = rng.choice(
                 self._perturbation_covariates, size=n_eval_conditions, replace=False
             )
         self.perturbation_covariates_dict = {perturbation: i for i, perturbation in enumerate(self._perturbation_covariates)}
-        
+
         perturbation_covariates_id = [adata.obs[perturbation_covariates[i]].apply(lambda x: perturbation_dict[x])
                                     for i in range(len(perturbation_covariates))]
         self.perturbation_covariates_id = np.array(perturbation_covariates_id).T
-        
-        
+
         self.cells_name = self.adata.obs_names
-        
-    def get_control_data(self,):
-        control_data = self.adata[self.adata.obs['is_control']]
+
+    def _mask(self, key):
+        pc = self.adata.obs['perturbation_covariates'].to_numpy()
+        if self.pair_col is None:
+            return pc == key
+        group, perturbation = key.split('|', 1)
+        return (pc == perturbation) & (self.groups == group)
+
+    def get_control_data(self, perturbation: str = None):
+        mask = self.adata.obs['is_control'].to_numpy()
+        if self.pair_col is not None and perturbation is not None:
+            group = perturbation.split('|', 1)[0]
+            mask = mask & (self.groups == group)
+        control_data = self.adata[mask]
         return {
             'src_cell_data': torch.from_numpy(control_data.X.toarray()).float(),
             'src_cell_id': control_data.obs_names,
-            'condition_id': torch.tensor(self.perturbation_covariates_id[self.adata.obs['is_control']]),
+            'condition_id': torch.tensor(self.perturbation_covariates_id[mask]),
         }
-    
+
     def get_perturbation_data(self, perturbation: str):
-        perturbation_data = self.adata[self.adata.obs['perturbation_covariates'] == perturbation]
+        mask = self._mask(perturbation)
+        perturbation_data = self.adata[mask]
         return {
             'tgt_cell_data': torch.from_numpy(perturbation_data.X.toarray()).float(),
             'tgt_cell_id': perturbation_data.obs_names,
-            'condition_id': torch.tensor(self.perturbation_covariates_id[self.adata.obs['perturbation_covariates'] == perturbation]),
-        }       
+            'condition_id': torch.tensor(self.perturbation_covariates_id[mask]),
+        }
     
 
 class PerturbationDataset(Dataset):
@@ -574,7 +636,10 @@ class PerturbationDataset(Dataset):
             self.context_codes = np.array(
                 [context_to_id.get(v, 0) for v in ct_vals], dtype=np.int64
             )
-                        
+
+        _pc = sampler.adata.obs['perturbation_covariates'].to_numpy()
+        self.idx_by_pert = {p: (_pc == p).nonzero()[0] for p in self.perturbations}
+
     def __len__(self):
         return len(self.perturbations) * 1000
 
@@ -603,7 +668,7 @@ class PerturbationDataset(Dataset):
                     for c in ct_choices
                 ])
             else:
-                tgt_idx = (self.sampler.adata.obs['perturbation_covariates'] == perturbation_id).to_numpy().nonzero()[0]
+                tgt_idx = self.idx_by_pert[perturbation_id]
                 tgt_batch_idx = np.random.choice(tgt_idx, self.batch_size)
                 src_batch_idx = np.random.choice(self.control_idx, self.batch_size)
         elif self.plate_col is not None:
@@ -626,11 +691,11 @@ class PerturbationDataset(Dataset):
                 )
             else:
                 # fallback: no plate has both controls and this perturbation
-                tgt_idx = (self.sampler.adata.obs['perturbation_covariates'] == perturbation_id).to_numpy().nonzero()[0]
+                tgt_idx = self.idx_by_pert[perturbation_id]
                 tgt_batch_idx = np.random.choice(tgt_idx, self.batch_size)
                 src_batch_idx = np.random.choice(self.control_idx, self.batch_size)
         else:
-            tgt_idx = (self.sampler.adata.obs['perturbation_covariates'] == perturbation_id).to_numpy().nonzero()[0]
+            tgt_idx = self.idx_by_pert[perturbation_id]
             tgt_batch_idx = np.random.choice(tgt_idx, self.batch_size)
             src_batch_idx = np.random.choice(self.control_idx, self.batch_size)
 

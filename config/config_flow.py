@@ -4,7 +4,6 @@ import os
 class FlowConfig:
     # Flow model type
     model_type: str = 'origin'
-    seed: int = 42
     # Flow Matching specific parameters
     batch_size: int = 32
     ntoken: int = 512
@@ -14,6 +13,7 @@ class FlowConfig:
     eta_min: float = 1e-7
     devices: str = "1"
     test_only: bool = False
+    seed: int = 42
     # Perturbation related parameters
     data_name: str = "combosciplex"
     perturbation_function: str = 'crisper'
@@ -28,78 +28,76 @@ class FlowConfig:
     infer_top_gene: int = 1000
     n_top_genes: int = 5000
     checkpoint_path: str = ''
-    split_file: str = ''     # override the split pickle path (for custom unseen splits)
-    train_frac: float = 1.0  # data-efficiency regime: fraction of train perturbations to keep
-    finetune: bool = False   # load ONLY model weights from checkpoint_path (strip _orig_mod,
-                             # keep new zero-init heads at init, fresh optimizer/scheduler,
-                             # start_iteration=0). For finetuning a pretrained baseline + causal head.
+    finetune: bool = False
     gamma: float = 0.0
     split_method: str = 'additive'
+    split_file: str = ''
+    train_frac: float = 1.0
     plate_col: str = ''  # Donor/plate column for batch-controlled pairing. Empty disables it.
     use_mmd_loss: bool = False
     fold: int = 0
     use_negative_edge: bool = False
     topk: int = 15
+    neighbor_cap: int = 128
     use_wire: bool = False
+    wire_eigvec_dim: int = 32
     use_repo: bool = False
     use_velocity_gate: bool = True
     # Endpoint distribution loss selector (replaces use_mmd_loss as the active gate).
-    # 'mmd' | 'deg_mse' | 'sinkhorn' | 'deg_sinkhorn' | 'none'. Requires gamma > 0 to take effect.
     endpoint_loss: str = 'mmd'
     deg_epsilon: float = 0.1
     sinkhorn_eps: float = 0.1
     sinkhorn_iters: int = 50
     # Sliced Wassertein distance parameters
-    # For 'deg_max_sliced' loss
     n_slices: int = 128
     sliced_top_frac: float = 0.1        # lower -> more max-sliced (worst-case direction)
     precision_epsilon: float = 0.1
     sparse_lambda: float = 0.1
-    # SAMS-VAE head: per-perturbation sparse additive mechanism shift in a latent space
-    # (Bereket & Karaletsos 2023). Identifiability from the sparse-mask prior (not
-    # anchoring). Zero-init decode => exact no-op residual when off (byte-identical to the
-    # baseline). samsvae_* = its structural params.
+    # SAMS-VAE sparse additive mechanism shift head
     use_samsvae: bool = False
-    samsvae_lambda_mask: float = 1e-4  # sparse mechanism-shift prior weight (+ warmup ramp)
-    samsvae_lr: float = 1e-3           # dedicated (higher) lr for the head; <=0 -> use global lr
-    samsvae_warmup_steps: int = 500    # ramp the sparsity penalty from 0 over these steps
-    samsvae_freeze_base: bool = False  # freeze pretrained baseline; train ONLY the causal head
-    samsvae_latent_dim: int = 64      # latent mechanism dimension L
-    samsvae_mask_prior: str = 'concrete'  # 'concrete' (hard-concrete L0, gauge-ROBUST default) |
-                                          # 'l1' (sigmoid+L1 ablation; shift-normalized but retains a
-                                          #  decode-scale gauge -> read via gauge-invariant mech_l1 metric)
+    samsvae_latent_dim: int = 64
+    samsvae_mask_prior: str = 'concrete'   # 'concrete' (gauge-robust) | 'l1' (ablation)
+    samsvae_lambda_mask: float = 1e-4
+    samsvae_lr: float = 1e-3
+    samsvae_warmup_steps: int = 500
+    samsvae_freeze_base: bool = False
+
     def __post_init__(self):
         if self.data_name == 'norman_umi_go_filtered':
             self.n_top_genes = 5054
         if self.data_name == 'norman':
             self.n_top_genes = 5000
+        assert self.samsvae_mask_prior in ('l1', 'concrete')
         path = self.make_path()
+
     def make_path(self):
-        exp_name = '-'.join([
-                            # 'flow',
-                            #  f'fusion_{self.fusion_method}',
-                             f'{self.data_name}',
-                             self.model_type,
-                            #  self.mode,
-                             f'gamma_{self.gamma}',
-                             f'pertfunc_{self.perturbation_function}',
-                            #  f'lr_{self.lr}',
-                            #  f'dim_{self.d_model}',
-                            #  f'infertop_{self.infer_top_gene}',
-                             f'split_{self.split_method}',
-                            #  f'mmd_{self.use_mmd_loss}',
-                             f'fold_{self.fold}',
-                             f'negedge_{self.use_negative_edge}',
-                            #  f'topk_{self.topk}',
-                             f'wire_{self.use_wire}',
-                             f'repo_{self.use_repo}',
-                             f'endpoint_{self.endpoint_loss}',
-                             f'precision_epsilon_{self.precision_epsilon}',
-                             f'sliced_top_frac_{self.sliced_top_frac}',
-                             f'n_slices_{self.n_slices}',
-                             f'sparse_lambda_{self.sparse_lambda}',
-                             f'velocity_gate_{self.use_velocity_gate}',
-                             f'samsvae_{self.use_samsvae}',
-                             f'seed_{self.seed}',
-                             ])
-        return os.path.join(self.result_path, exp_name)
+        _LOSS = {
+            'mmd': 'mmd', 'deg_mmd': 'dmmd', 'sinkhorn': 'sink', 'deg_sinkhorn': 'dsink',
+            'max_sliced': 'msl', 'deg_max_sliced': 'dmsl',
+            'precision_sinkhorn': 'psink', 'deg_sinkhorn_sparse': 'dsinksp',
+            'none': 'none',
+        }
+        _PRIOR = {'concrete': 'cz', 'l1': 'l1'}
+        flags = (f"{int(self.use_negative_edge)}{int(self.use_wire)}"
+                 f"{int(self.use_repo)}{int(self.use_velocity_gate)}")
+        parts = [
+            self.data_name,
+            self.split_method[:3],
+            f'f{self.fold}',
+            _LOSS.get(self.endpoint_loss, self.endpoint_loss),
+            f'g{self.gamma:g}',
+            f'nwrv{flags}',
+            f'pe{self.precision_epsilon:g}',
+            f'tf{self.sliced_top_frac:g}',
+            f'ns{self.n_slices}',
+            f'sl{self.sparse_lambda:g}',
+        ]
+        if self.use_samsvae:
+            parts.append(f'{_PRIOR[self.samsvae_mask_prior]}L{self.samsvae_latent_dim}'
+                         f'lm{self.samsvae_lambda_mask:g}lr{self.samsvae_lr:g}')
+        else:
+            parts.append('nocausal')
+        parts.append(f's{self.seed}')
+        name = '-'.join(parts)
+        assert len(name) <= 200, f'result dir component too long ({len(name)}): {name}'
+        return os.path.join(self.result_path, name)

@@ -1,61 +1,5 @@
 """
 Sparse Additive Mechanism Shift (SAMS-VAE style) head for SPEAR.
-
-Motivation
-----------
-This is the *second* latent-causal route for SPEAR v2, running in parallel to IPLC
-(`latent_scm.py`). Both target the same PSB "mechanism + interpretability" pitch,
-but they draw identifiability from DIFFERENT sources so they can cross-validate:
-
-  - IPLC   : latent factors + an explicit factor->factor causal DAG, made
-             identifiable by *hard-anchoring* each factor to a gene (A == gene x
-             gene regulatory matrix, directly comparable to TRRUST).
-  - SAMS-VAE: no DAG. Every perturbation is a *sparse additive mechanism shift* in
-             a latent space, and identifiability comes from the SPARSE-MECHANISM
-             PRIOR + additive structure + perturbation diversity (Bereket &
-             Karaletsos, NeurIPS 2023; Lachapelle et al.).
-
-What it does (adapted to flow-matching, not a VAE)
---------------------------------------------------
-We add a latent mechanism code as a residual on the mean-pooled perturbation embedding:
-
-    z = sum_{p perturbed}  mask_p (.) shift_hat_p          # sparse additive shift
-    code = to_dmodel(z)                                    # decode to the d_model residual
-    perturbation_emb <- perturbation_emb + code
-
-mask_p and shift_p are GLOBAL, per-perturbable-gene parameters (indexed by the gene's
-vocab token id), NOT amortized from the token embedding -- so `mask_p` is a stable,
-readable property of perturbation p ("which latent dims gene p engages"). control /
-non-perturbable slots map to row -1 and contribute nothing, so z(A+B) = z(A) + z(B)
-holds by construction (compositional). `to_dmodel` is zero-initialized => the whole
-head is an EXACT no-op residual at init (fair baseline comparison).
-
-IDENTIFIABILITY -- the scale gauge and how it is pinned (preflight-review fix)
------------------------------------------------------------------------------
-The data path only sees the PRODUCT mask (.) shift, which admits a scale gauge:
-(mask/c, shift*c) leaves the mechanism (hence the fit) invariant. Left unpinned, an
-L1 penalty on a *continuous* mask is minimized for free by shrinking every mask
-toward 0 while shift (unregularized) inflates to compensate -- the exported mask then
-reads numerically empty for GAUGE reasons, not biology, and z_norm/code_norm (both
-gauge-invariant) cannot detect it. Two defenses, applied here:
-
-  1. `shift` is L2-normalized per row (unit direction) inside forward. The magnitude
-     can no longer migrate from mask into the raw shift parameter -> the per-element
-     (mask/c, shift*c) gauge is killed for BOTH priors.
-  2. DEFAULT prior is 'concrete' (hard-concrete L0, Louizos et al. 2018). Its penalty
-     is expected-L0 = sum sigmoid(logit - const), a function of the LOGITS ONLY
-     (structure: which dims are on), invariant to any magnitude rescaling of shift or
-     to_dmodel. So it rewards only genuine STRUCTURAL sparsification and is immune to
-     both the per-element gauge AND the residual (z/c, to_dmodel*c) decode gauge.
-     The 'l1' prior is kept as an ablation: shift-normalization kills its per-element
-     gauge, but it retains the decode-scale gauge, so read it via the gauge-INVARIANT
-     `mech_l1` metric in stats() (not the raw mask), and prefer 'concrete' for claims.
-
-We deliberately do NOT normalize z (BatchNorm-on-z), which would make the fit
-invariant to mask scale and thereby *aid* the L1 collapse.
-
-Collapse observability: stats() reports gauge-invariant `mech_l1` and (for concrete)
-the hard active-dim count, so a genuine collapse to an empty mechanism is visible.
 """
 
 import torch
@@ -132,6 +76,7 @@ class SparseAdditiveMechanismShift(nn.Module):
         s_bar = torch.sigmoid(self.mask_logits) * (_HC_ZETA - _HC_GAMMA) + _HC_GAMMA
         return s_bar.clamp(0.0, 1.0)
 
+    @torch._dynamo.disable
     def _mask_rows(self, rows_idx: torch.Tensor) -> torch.Tensor:
         """Per-token mask gates for gathered rows (B, n_comb) -> (B, n_comb, L).
         In 'concrete' training mode draws relaxed-Bernoulli gates from the dedicated
@@ -164,8 +109,6 @@ class SparseAdditiveMechanismShift(nn.Module):
         mech = mask * shift * valid                              # control slots zeroed
         z = mech.sum(dim=1)                                      # (B, L) additive shift
         code = self.to_dmodel(z)                                 # (B, d_model), no-op at init
-        self._last_z = z
-        self._last_mech = mech
         return code
 
     # -- regularization -----------------------------------------------------
@@ -188,20 +131,25 @@ class SparseAdditiveMechanismShift(nn.Module):
     # -- diagnostics / interpretability readout -----------------------------
     @torch.no_grad()
     def stats(self, pert_ids: torch.Tensor) -> dict:
-        """Activity probe. z_norm/code_norm are gauge-INVARIANT (cannot see a scale
-        collapse); `mech_l1` and `active_dims` are gauge-invariant STRUCTURE metrics
-        that DO reveal an empty-mechanism collapse. shift is unit-norm per row."""
-        code = self.forward(pert_ids)
+        """Activity probe. Deterministic: reads the median gate table directly instead of
+        calling forward(), so instrumentation never advances the concrete gate generator
+        and the training trajectory is identical with or without stats printing.
+        z_norm/code_norm are gauge-INVARIANT; mech_l1/active_dims are gauge-invariant
+        STRUCTURE metrics that DO reveal an empty-mechanism collapse."""
         mask_tbl = self._mask_table()                            # (n_pert, L) deterministic
-        # hard structural gate (concrete): dim is "on" if its median gate exceeds 0.5.
+        shat = self._shift_hat()
+        rows = self.pert_to_row[pert_ids]                        # (B, n_comb), -1 = control
+        valid = (rows >= 0).to(shat.dtype).unsqueeze(-1)
+        idx = rows.clamp(min=0)
+        mech = mask_tbl[idx] * shat[idx] * valid                 # (B, n_comb, L)
+        z = mech.sum(dim=1)
+        code = self.to_dmodel(z)
         active = (mask_tbl > 0.5).float()
         return {
             "code_norm_mean": float(code.norm(dim=-1).mean()),
             "code_norm_max": float(code.norm(dim=-1).max()),
-            "z_norm_mean": float(self._last_z.norm(dim=-1).mean()),
-            # gauge-invariant collapse probes: mean L1 of the actual mechanism per pert,
-            # and mean #structurally-active dims per pert. If these -> 0 the mask is empty.
-            "mech_l1_mean": float(self._last_mech.abs().sum(dim=-1).sum(dim=-1).mean()),
+            "z_norm_mean": float(z.norm(dim=-1).mean()),
+            "mech_l1_mean": float(mech.abs().sum(dim=-1).sum(dim=-1).mean()),
             "active_dims_mean": float(active.sum(dim=-1).mean()),
             "mask_mean": float(mask_tbl.mean()),
             "shift_absmax": float(self.shift.abs().max()),

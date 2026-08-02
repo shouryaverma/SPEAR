@@ -106,8 +106,8 @@ if __name__ == "__main__":
     print(f"HVG genes: {len(hvg_gene_names)}, "
           f"token ID range: {min(gene_token_ids)} .. {max(gene_token_ids)}")
 
-    ntoken = max(gene_token_ids) + 1
-    print(f"ntoken auto-detected from vocab: {ntoken}")
+    ntoken = len(vocab)
+    print(f"ntoken from vocab: {ntoken}")
 
     X = data_manager.adata_train.X
     if hasattr(X, "toarray"):

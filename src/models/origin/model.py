@@ -8,7 +8,7 @@ from timm.models.vision_transformer import Mlp
 from .layers import (GeneadaLN, ContinuousValueEncoder, GeneEncoder,
                      BatchLabelEncoder, TimestepEmbedder, ExprDecoder)
 from .blocks import MultiheadDiffAttn, modulate, GeneREPO
-from src.models.perturbation.sams_vae import SparseAdditiveMechanismShift
+from .sams_vae import SparseAdditiveMechanismShift
 
 
 class DifferentialTransformerBlock(nn.Module):
@@ -108,6 +108,7 @@ class model(nn.Module):
                  wire_path: str = None,
                  use_wire: bool = True,
                  use_repo: bool = True,
+                 neighbor_cap: int = 128,
                  use_velocity_gate: bool = True,
                  use_samsvae: bool = False,
                  samsvae_control_id: int = None,
@@ -132,7 +133,7 @@ class model(nn.Module):
             ntoken, d_model,
             use_perturbation_interaction=use_perturbation_interaction,
             mask_path=mask_path, use_wire=use_wire, wire_path=wire_path,
-            nhead=nhead, dropout=dropout
+            nhead=nhead, dropout=dropout, neighbor_cap=neighbor_cap,
         )
         self.use_perturbation_interaction = use_perturbation_interaction
 
