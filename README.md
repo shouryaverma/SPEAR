@@ -6,7 +6,7 @@ Shourya Verma\*, Mengbo Wang\*, Simran Kadadi\*, Nadia Atallah Lanman, Shahin Mo
 
 Purdue University, Broad Institute (Cytognosis). \*Equal contribution.
 
-[Project page (NeurIPS 2026)](https://neurips.cc/virtual/2026/poster/152050) | [OpenReview](https://openreview.net/forum?id=VsHXKYG0Sq) | [Architecture figure](assets/spear_main.drawio.png)
+[Project page (NeurIPS 2026)](https://neurips.cc/virtual/2026/poster/152050) | [OpenReview](https://openreview.net/forum?id=VsHXKYG0Sq)
 
 <p align="center">
   <img src="assets/spear_title.drawio.png" width="92%" alt="SPEAR overview">
@@ -24,6 +24,10 @@ SPEAR replaces sequential positional encodings and binary attention masks with t
 - **Adaptive repositioning (AR).** At every layer, each gene's perturbation-conditioned hidden state is projected through a SwiGLU gate to a scalar position per head, then expanded to rotary angles at geometric frequencies. Attention geometry reorganizes with the perturbation, with no supervision on gene-gene relationships.
 
 Both are trained inside a perturbation-conditioned flow matching model with a differential-attention Perceiver backbone, a curved training interpolant, and an unbiased multi-scale MMD endpoint loss. Inference integrates the learned velocity field with RK4 and classifier-free guidance.
+
+<p align="center">
+  <img src="assets/spear_main.drawio.png" width="92%" alt="SPEAR Architecture">
+</p>
 
 ## Results
 
