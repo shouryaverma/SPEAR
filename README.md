@@ -6,7 +6,7 @@ Shourya Verma\*, Mengbo Wang\*, Simran Kadadi\*, Nadia Atallah Lanman, Shahin Mo
 
 Purdue University, Broad Institute (Cytognosis). \*Equal contribution.
 
-[Project page (NeurIPS 2026)](https://neurips.cc/virtual/2026/poster/152050) | [OpenReview](https://openreview.net/forum?id=VsHXKYG0Sq)
+[Project page (NeurIPS 2026)](https://neurips.cc/virtual/2026/poster/152050) | [OpenReview Paper Link](https://openreview.net/forum?id=VsHXKYG0Sq)
 
 <p align="center">
   <img src="assets/spear_title.drawio.png" width="92%" alt="SPEAR overview">

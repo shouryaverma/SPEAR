@@ -1,26 +1,38 @@
 #!/bin/bash
-#SBATCH -A pccr
 #SBATCH -N 1
-#SBATCH -p ai
-#SBATCH -q normal
 #SBATCH -t 24:00:00
 #SBATCH --requeue
 #SBATCH --signal=B:USR1@300
 #SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-gpu=14
-#SBATCH --mail-user=verma198@purdue.edu
-#SBATCH --mail-type=FAIL
 #SBATCH --job-name=spear_exp
 #SBATCH --array=0-16
 #SBATCH --output=logs/%x_%A_%a.out
 
 # Single entry point for every experiment. Submit from the repository root.
 #
+# Cluster-specific Slurm settings (account, partition, QOS, mail) are not hardcoded. Pass them
+# on the command line, for example:
+#     sbatch -A <account> -p <partition> -q <qos> \
+#            --mail-user=<address> --mail-type=FAIL run_experiments.sbatch
+# The same flags override --gpus-per-node, --cpus-per-gpu and -t if your cluster differs.
+#
+# Environment variables (all optional):
+#     REPO_DIR      repository root (default: the directory sbatch was submitted from)
+#     CONDA_ENV     conda environment name or prefix (default: the name in environment.yml;
+#                   if neither is available, the already active Python environment is used)
+#     CONDA_MODULE  environment module that provides conda, loaded only when conda is not on
+#                   PATH (default: conda)
+#     WARM_CACHE    compiler cache built by warm_inductor_cache.sh (default: .inductor_warm)
+#
+# Logs go to <repo_root>/logs. The directory must exist before submission because Slurm does
+# not create the --output directory:
+#
 #   SAMS-VAE suite (tasks 0-16, the default array above):
-#     cd /depot/natallah/data/shourya/SPEAR_CAUSAL/SPEAR && mkdir -p logs
+#     cd <repo_root> && mkdir -p logs
 #     JID=$(sbatch --parsable run_experiments.sbatch)
 #
-#   Analysis after the SAMS-VAE suite finishes (writes logs/samsvae_analysis_all.log):
+#   Analysis after the SAMS-VAE suite finishes:
 #     sbatch --dependency=afterok:$JID --export=ALL,MODE=analyze --array=0 run_experiments.sbatch
 #
 #   Everything, including the endpoint-loss matrix on all four datasets (tasks 0-106):
@@ -39,8 +51,7 @@
 #   17-106 endpoint-loss matrix (7 losses x 3 seeds x 4 datasets) plus SAMS-VAE arms on
 #          norman and replogle, 600k steps, legacy result layout
 
-REPO_DIR=${REPO_DIR:-/depot/natallah/data/shourya/SPEAR_CAUSAL/SPEAR}
-CONDA_ENV=${CONDA_ENV:-/depot/natallah/data/shourya/scDFM_env}
+REPO_DIR=${REPO_DIR:-${SLURM_SUBMIT_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}}
 GAMMA=0.1
 
 SAMS_ROOT=./result/samsvae_norman_additive_f1
@@ -111,18 +122,38 @@ fi
 # ---------------------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------------------
-cd "$REPO_DIR" || exit 1
+cd "$REPO_DIR" || { echo "ABORT: cannot enter REPO_DIR=$REPO_DIR"; exit 1; }
 mkdir -p logs
-module load conda
-conda activate "$CONDA_ENV"
+
+activate_env() {
+  local name=${CONDA_ENV:-}
+  if [ -z "$name" ] && [ -f environment.yml ]; then
+    name=$(sed -n 's/^name:[[:space:]]*//p' environment.yml | head -n1)
+  fi
+  if ! command -v conda >/dev/null 2>&1 && command -v module >/dev/null 2>&1; then
+    module load "${CONDA_MODULE:-conda}" 2>/dev/null
+  fi
+  if [ -n "$name" ] && command -v conda >/dev/null 2>&1; then
+    eval "$(conda shell.bash hook)"
+    conda activate "$name" || return 1
+  fi
+  return 0
+}
+activate_env || { echo "ABORT: could not activate the conda environment"; exit 1; }
 set -uo pipefail
+
+if [ ! -e data ]; then
+  echo "ABORT: $REPO_DIR/data not found; link or copy the datasets there"
+  exit 1
+fi
 
 export PYTHONPATH=.
 export HDF5_USE_FILE_LOCKING=FALSE
 export SPEAR_COMPILE=${SPEAR_COMPILE:-1}
 
-# Per-job compiler caches and temp files, kept out of /tmp. A cache shared by concurrent jobs
-# corrupts (interleaved autotune JSON), so every job owns its directory.
+# Per-job compiler caches and temp files, kept inside the repository. A cache shared by
+# concurrent jobs corrupts (interleaved autotune JSON), so every job owns its directory. When
+# warm_inductor_cache.sh has been run, each job starts from a private copy of that cache.
 CACHE_DIR="${REPO_DIR}/.cache/job_${SLURM_JOB_ID:-local}"
 mkdir -p "$CACHE_DIR/inductor" "$CACHE_DIR/triton" "$CACHE_DIR/tmp"
 export TORCHINDUCTOR_CACHE_DIR="$CACHE_DIR/inductor"
@@ -130,7 +161,20 @@ export TRITON_CACHE_DIR="$CACHE_DIR/triton"
 export TMPDIR="$CACHE_DIR/tmp"
 trap 'rm -rf "$CACHE_DIR"' EXIT
 
+WARM_CACHE=${WARM_CACHE:-$REPO_DIR/.inductor_warm}
+if [ -d "$WARM_CACHE/inductor" ]; then
+  cp -r --no-preserve=mode,ownership "$WARM_CACHE/inductor/." "$CACHE_DIR/inductor/"
+  if [ -d "$WARM_CACHE/triton" ]; then
+    cp -r --no-preserve=mode,ownership "$WARM_CACHE/triton/." "$CACHE_DIR/triton/"
+  fi
+  echo "[cache] seeded from $WARM_CACHE"
+fi
+
 if [ "${MODE:-train}" = "analyze" ]; then
+  if [ ! -f src/script/samsvae_analysis.py ]; then
+    echo "ABORT: src/script/samsvae_analysis.py not found"
+    exit 1
+  fi
   python src/script/samsvae_analysis.py all
   exit $?
 fi
@@ -180,7 +224,7 @@ prepare_data() {   # data split fold
 }
 
 echo "[cfg] task=$TASK tag=$TAG data=$DATA split=$SPLIT fold=$FOLD steps=$STEPS loss=$LOSS seed=$SEED"
-echo "[cfg] result_path=$RESULT_PATH"
+echo "[cfg] repo=$REPO_DIR result_path=$RESULT_PATH"
 echo "[cfg] extra=$EXTRA"
 echo "[cfg] compile=$SPEAR_COMPILE cache=$CACHE_DIR"
 
@@ -224,5 +268,7 @@ minutes=$(($dif / 60)); seconds=$(($dif % 60))
 printf "\n\t===========Time Stamp===========\n"
 printf "\tStart\t:$start\n\tEnd\t:$end\n\tTime\t:%02d:%02d:%02d\n" "$hours" "$minutes" "$seconds"
 printf "\t================================\n\n"
-sacct --jobs="${SLURM_JOB_ID}" --format=jobid,jobname,qos,nnodes,ncpu,maxrss,cputime,avecpu,elapsed
+if command -v sacct >/dev/null 2>&1; then
+  sacct --jobs="${SLURM_JOB_ID}" --format=jobid,jobname,qos,nnodes,ncpu,maxrss,cputime,avecpu,elapsed
+fi
 exit $STATUS
