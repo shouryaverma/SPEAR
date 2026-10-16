@@ -1,14 +1,18 @@
 # SPEAR: Spectral Adaptive Repositioning for Flow-Based Single-Cell Perturbation Modeling
 
-Official code for the paper **Spectral Adaptive Repositioning for Flow-Based Single-Cell Perturbation Modeling**.
+Official code for the NeurIPS 2026 paper **Spectral Adaptive Repositioning for Flow-Based Single-Cell Perturbation Modeling**.
 
 Shourya Verma\*, Mengbo Wang\*, Simran Kadadi\*, Nadia Atallah Lanman, Shahin Mohammadi, Ananth Grama
 
 Purdue University, Broad Institute (Cytognosis). \*Equal contribution.
 
+[Project page (NeurIPS 2026)](https://neurips.cc/virtual/2026/poster/152050) | [OpenReview](https://openreview.net/forum?id=VsHXKYG0Sq) | [Architecture figure](assets/spear_main.drawio.png)
+
 <p align="center">
-  <img src="assets/overview.png" width="92%" alt="SPEAR overview">
+  <img src="assets/spear_title.drawio.png" width="92%" alt="SPEAR overview">
 </p>
+
+**Left:** a knockout (G4) collapses hub connections and reorganizes the positional structure of the remaining genes. **Center:** SPEAR maps unperturbed cell populations to perturbed cell states under drug and genetic perturbations via a learned flow. **Right:** evaluation metrics.
 
 ## Overview
 
@@ -166,10 +170,12 @@ SPEAR/
 ## Citation
 
 ```bibtex
-@article{verma2026spear,
-  title   = {Spectral Adaptive Repositioning for Flow-Based Single-Cell Perturbation Modeling},
-  author  = {Verma, Shourya and Wang, Mengbo and Kadadi, Simran and Lanman, Nadia Atallah and Mohammadi, Shahin and Grama, Ananth},
-  year    = {2026}
+@inproceedings{verma2026spear,
+  title     = {Spectral Adaptive Repositioning for Flow-Based Single-Cell Perturbation Modeling},
+  author    = {Verma, Shourya and Wang, Mengbo and Kadadi, Simran and Lanman, Nadia Atallah and Mohammadi, Shahin and Grama, Ananth},
+  booktitle = {Advances in Neural Information Processing Systems},
+  year      = {2026},
+  url       = {https://openreview.net/forum?id=VsHXKYG0Sq}
 }
 ```
 
