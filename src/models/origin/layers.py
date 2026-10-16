@@ -1,9 +1,11 @@
+import math
+from typing import Dict, Optional
+
 import torch
 import torch.nn as nn
-from torch import Tensor
-from typing import Optional, Dict
-import math
 import torch.nn.functional as F
+from torch import Tensor
+
 from .blocks import WireRotaryEncoding, apply_rotary
 
 
@@ -102,6 +104,15 @@ class ContinuousValueEncoder(nn.Module):
 
 
 class GeneEncoder(nn.Module):
+    """Gene token embedding, optionally refined by attention over co-expression neighbors.
+
+    forward(x) takes x of shape (B, G) and uses the gene ids of row 0 to gather neighbors, so
+    every row of a batch must carry the same genes (true for gene inputs and for batches that
+    hold a single condition). To embed several different conditions, call it once per condition.
+
+    neighbor_table / spectral_coords let the encoder be rebuilt from checkpoint buffers
+    without the mask and wire files (used by the analysis script).
+    """
     def __init__(
         self,
         num_embeddings: int,
@@ -114,31 +125,36 @@ class GeneEncoder(nn.Module):
         use_wire: bool = True,
         wire_path: str = None,
         neighbor_cap: int = 128,
+        neighbor_table: Optional[Tensor] = None,
+        spectral_coords: Optional[Tensor] = None,
     ):
         super().__init__()
         self.embedding = nn.Embedding(num_embeddings, embedding_dim, padding_idx=padding_idx)
         self.enc_norm = nn.LayerNorm(embedding_dim)
         self.use_perturbation_interaction = use_perturbation_interaction
-        self.use_wire = use_wire
-        self.use_wire = use_wire and wire_path is not None
+
+        eigvecs = spectral_coords
+        if eigvecs is None and wire_path is not None:
+            eigvecs = torch.load(wire_path, weights_only=True)
+        self.use_wire = bool(use_wire and eigvecs is not None)
 
         if use_perturbation_interaction:
-            # Stored adjacency has True = NON-neighbor (~99% dense); real KNN are the
-            # False entries. Invert, drop self-loops, gather into a (vocab, cap) id table.
-            adj = ~torch.load(mask_path).bool()
-            adj.fill_diagonal_(False)
-            self.register_buffer('coexp_neighbors',
-                                 self._adjacency_to_neighbor_table(adj, neighbor_cap))
+            if neighbor_table is None:
+                # Stored adjacency has True = NON-neighbor (~99% dense); real KNN are the
+                # False entries. Invert, drop self-loops, gather into a (vocab, cap) id table.
+                adj = ~torch.load(mask_path).bool()
+                adj.fill_diagonal_(False)
+                neighbor_table = self._adjacency_to_neighbor_table(adj, neighbor_cap)
+            self.register_buffer('coexp_neighbors', neighbor_table.long())
 
             eigvec_dim = None
-            if use_wire and wire_path is not None:
-                eigvecs = torch.load(wire_path, weights_only=True).float()
-                self.register_buffer('spectral_coords', eigvecs)
+            if self.use_wire:
+                self.register_buffer('spectral_coords', eigvecs.float())
                 eigvec_dim = eigvecs.shape[1]
 
             self.coexp_attn = GeneNeighborAttention(
                 embedding_dim, nhead, mlp_ratio=4, dropout=dropout,
-                eigvec_dim=eigvec_dim, use_wire=(use_wire and eigvec_dim is not None),
+                eigvec_dim=eigvec_dim, use_wire=self.use_wire,
             )
 
     @staticmethod

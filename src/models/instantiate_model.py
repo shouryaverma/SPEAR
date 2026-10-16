@@ -1,46 +1,34 @@
-from src.models.scGPT.model import TransformerModel
-from src.models.perturbation.model import Model as FlowModel
-from src.models.perturbation.model import TimedTransformer
 from src.models.origin.model import model as OriginModel
-import torch
+
+LAYERS_BY_FUSION = {'differential_transformer': 8, 'differential_perceiver': 4}
+DEFAULT_LAYERS = 8
+
+
 def instantiate_model(model_type: str, **kwargs):
-    if model_type == 'origin':
-        if kwargs['fusion_method'] == 'differential_transformer':
-            layers = 8
-        elif kwargs['fusion_method'] == 'differential_perceiver':
-            layers = 4
-        else:
-            layers = 8
-        use_samsvae = kwargs.get('use_samsvae', False)
-        pert_vocab_ids = kwargs.get('samsvae_pert_vocab_ids', None)
-        if use_samsvae:
-            assert pert_vocab_ids, \
-                "use_samsvae=True but samsvae_pert_vocab_ids is empty; check that " \
-                "perturbation_dict keys are single gene symbols present in the vocab."
-        m = OriginModel(
-            ntoken=kwargs['ntoken'],
-            d_model=kwargs['d_model'],
-            fusion_method=kwargs['fusion_method'],
-            nlayers=layers,
-            perturbation_function=kwargs['perturbation_function'],
-            mask_path=kwargs['mask_path'],
-            wire_path=kwargs.get('wire_path', None),
-            use_wire=kwargs.get('use_wire', False),
-            use_repo=kwargs.get('use_repo', False),
-            neighbor_cap=kwargs.get('neighbor_cap', 128),
-            use_velocity_gate=kwargs.get('use_velocity_gate', True),
-            use_samsvae=use_samsvae,
-            samsvae_control_id=kwargs.get('samsvae_control_id', None),
-            samsvae_pert_vocab_ids=pert_vocab_ids,
-            samsvae_latent_dim=kwargs.get('samsvae_latent_dim', 64),
-            samsvae_mask_prior=kwargs.get('samsvae_mask_prior', 'concrete'),
-        )
-        return m
-    else:
+    if model_type != 'origin':
         raise ValueError(f"Invalid model type: {model_type}")
-if __name__ == "__main__":
-    model = instantiate_model("punet128")
-    x = torch.randn(32, 128, 128)
-    t = torch.randn(32)
-    out = model(x, t)
-    print(out.shape)
+
+    use_samsvae = kwargs.get('use_samsvae', False)
+    pert_vocab_ids = kwargs.get('samsvae_pert_vocab_ids') or []
+    if use_samsvae and not pert_vocab_ids:
+        raise ValueError(
+            "use_samsvae=True but samsvae_pert_vocab_ids is empty; check that "
+            "perturbation_dict keys are single gene symbols present in the vocab.")
+
+    return OriginModel(
+        ntoken=kwargs['ntoken'],
+        d_model=kwargs['d_model'],
+        fusion_method=kwargs['fusion_method'],
+        nlayers=LAYERS_BY_FUSION.get(kwargs['fusion_method'], DEFAULT_LAYERS),
+        perturbation_function=kwargs['perturbation_function'],
+        mask_path=kwargs['mask_path'],
+        wire_path=kwargs.get('wire_path', None),
+        use_wire=kwargs.get('use_wire', False),
+        use_repo=kwargs.get('use_repo', False),
+        neighbor_cap=kwargs.get('neighbor_cap', 128),
+        use_velocity_gate=kwargs.get('use_velocity_gate', True),
+        use_samsvae=use_samsvae,
+        samsvae_pert_vocab_ids=pert_vocab_ids,
+        samsvae_latent_dim=kwargs.get('samsvae_latent_dim', 64),
+        samsvae_mask_prior=kwargs.get('samsvae_mask_prior', 'concrete'),
+    )

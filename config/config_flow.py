@@ -11,6 +11,7 @@ class FlowConfig:
     lr: float = 1e-5
     steps: int = 5000 # iterations
     eta_min: float = 1e-7
+    ema_decay: float = 0.9999
     devices: str = "1"
     test_only: bool = False
     seed: int = 42
@@ -60,7 +61,6 @@ class FlowConfig:
     samsvae_lambda_mask: float = 1e-4
     samsvae_lr: float = 1e-3
     samsvae_warmup_steps: int = 500
-    samsvae_freeze_base: bool = False
 
     def __post_init__(self):
         if self.data_name == 'norman_umi_go_filtered':

@@ -1,33 +1,41 @@
 import os
 os.environ["HDF5_USE_FILE_LOCKING"] = "FALSE"
-import torch
-import torch.nn as nn
-import tyro
-from config.config_flow import FlowConfig as Config
-import torch.nn.functional as F
-from torch.utils.data import DataLoader
+import math
 import random
+import re
+
+import anndata as ad
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn.functional as F
+import torchdiffeq
+import tqdm
+import tyro
+from accelerate import Accelerator, DistributedDataParallelKwargs
+from cell_eval import MetricsEvaluator
+from torch.utils.data import DataLoader
+
+from config.config_flow import FlowConfig as Config
 from src.data_process.data import Data, PerturbationDataset
 from src.flow_matching.path import AffineProbPath
-from src.models.instantiate_model import instantiate_model
-import tqdm
 from src.flow_matching.path.scheduler import CondOTScheduler
-from accelerate import Accelerator, DistributedDataParallelKwargs
-import torchdiffeq
-from tqdm import trange
-import numpy as np
-from cell_eval import MetricsEvaluator
-import anndata as ad
-import pandas as pd
-import math
-import re
+from src.models.instantiate_model import instantiate_model
 from src.utils.utils import (save_checkpoint, load_checkpoint, make_lognorm_poisson_noise,
-                              pick_eval_score, process_vocab, set_requires_grad_for_p_only)
+                             pick_eval_score, process_vocab, set_requires_grad_for_p_only)
 
 path = AffineProbPath(scheduler=CondOTScheduler())
 
+EVAL_SEED = 0          # evaluation draws noise and control cells from its own fixed seed
+EVAL_CELLS = 128       # control cells sampled per evaluated condition
+
+
+# ----------------------------------------------------------------------------------------
+# Distribution distances
+# ----------------------------------------------------------------------------------------
 def pairwise_sq_dists(X, Y):
     return torch.cdist(X, Y, p=2) ** 2
+
 
 @torch.no_grad()
 def median_sigmas(X, scales=(0.5, 1.0, 2.0, 4.0)):
@@ -63,48 +71,6 @@ def mmd_endpoint(X, Y, scales=(0.5, 1.0, 2.0, 4.0)):
     return mmd2_unbiased_multi_sigma(X, Y, sigmas)
 
 
-def compute_deg_weights(train_sampler, epsilon=0.1):
-    """
-    Per-combination per-gene weight from training log-fold-change, keyed by the
-    sorted gene-id pair tuple (same space as batch_data['condition_id']).
-    w_i = epsilon + (1 - epsilon) * |lfc_i| / max_j|lfc_j|.
-    Returns {(id_a, id_b): (n_genes,) CPU tensor}.
-    """
-    adata = train_sampler.adata
-    X = adata.X
-    if hasattr(X, "toarray"):
-        X = X.toarray()
-    X = np.asarray(X, dtype=np.float32)
-
-    cond = adata.obs['perturbation_covariates'].astype(str).values
-    pair_ids = np.asarray(train_sampler.perturbation_covariates_id)        # (N, 2)
-
-    is_ctrl = cond == 'control+control'
-    if is_ctrl.sum() == 0:
-        is_ctrl = np.array(['control' in c.lower() for c in cond])
-    ctrl_mean = X[is_ctrl].mean(0) if is_ctrl.sum() > 0 else X.mean(0)
-
-    string_to_pair = {}
-    for i, name in enumerate(cond):
-        if name not in string_to_pair:
-            string_to_pair[name] = tuple(sorted(int(v) for v in pair_ids[i]))
-
-    weights = {}
-    for name in np.unique(cond):
-        if name == 'control+control':
-            continue
-        mask = cond == name
-        if mask.sum() == 0:
-            continue
-        if mask.sum() == 0:
-            continue
-        lfc = np.abs(X[mask].mean(0) - ctrl_mean)
-        w_max = max(float(lfc.max()), 1e-12)
-        w = epsilon + (1.0 - epsilon) * (lfc / w_max)
-        weights[string_to_pair[name]] = torch.from_numpy(w.astype(np.float32))
-    return weights
-
-
 def weighted_sqdist(X, Y, w=None):
     if w is None:
         return torch.cdist(X, Y, p=2) ** 2
@@ -135,6 +101,7 @@ def sinkhorn_divergence(X, Y, eps, n_iters, w=None):
             - 0.5 * sinkhorn_value(weighted_sqdist(X, X, w), eps, n_iters)
             - 0.5 * sinkhorn_value(weighted_sqdist(Y, Y, w), eps, n_iters))
 
+
 def sliced_w2(X, Y, w=None, n_projections=128, top_frac=0.1):
     X = X.float()
     Y = Y.float()
@@ -152,57 +119,128 @@ def sliced_w2(X, Y, w=None, n_projections=128, top_frac=0.1):
     return torch.topk(w2, k).values.mean()
 
 
-def compute_precision_weights(train_sampler, epsilon=0.1):
+# ----------------------------------------------------------------------------------------
+# Endpoint-loss weights
+# ----------------------------------------------------------------------------------------
+def dense_expression(train_sampler):
     adata = train_sampler.adata
     X = adata.X
     if hasattr(X, "toarray"):
         X = X.toarray()
-    X = np.asarray(X, dtype=np.float32)
-    cond = adata.obs['perturbation_covariates'].astype(str).values
+    return adata, np.asarray(X, dtype=np.float32)
+
+
+def control_mask(cond):
     is_ctrl = cond == 'control+control'
     if is_ctrl.sum() == 0:
         is_ctrl = np.array(['control' in c.lower() for c in cond])
+    return is_ctrl
+
+
+def compute_deg_weights(train_sampler, epsilon=0.1):
+    adata, X = dense_expression(train_sampler)
+    cond = adata.obs['perturbation_covariates'].astype(str).values
+    pair_ids = np.asarray(train_sampler.perturbation_covariates_id)        # (N, 2)
+
+    is_ctrl = control_mask(cond)
+    ctrl_mean = X[is_ctrl].mean(0) if is_ctrl.sum() > 0 else X.mean(0)
+
+    string_to_pair = {}
+    for i, name in enumerate(cond):
+        if name not in string_to_pair:
+            string_to_pair[name] = tuple(sorted(int(v) for v in pair_ids[i]))
+
+    weights = {}
+    for name in np.unique(cond):
+        if name == 'control+control':
+            continue
+        mask = cond == name
+        lfc = np.abs(X[mask].mean(0) - ctrl_mean)
+        w_max = max(float(lfc.max()), 1e-12)
+        w = epsilon + (1.0 - epsilon) * (lfc / w_max)
+        weights[string_to_pair[name]] = torch.from_numpy(w.astype(np.float32))
+    return weights
+
+
+def compute_precision_weights(train_sampler, epsilon=0.1):
+    adata, X = dense_expression(train_sampler)
+    cond = adata.obs['perturbation_covariates'].astype(str).values
+    is_ctrl = control_mask(cond)
     ctrl = X[is_ctrl] if is_ctrl.sum() > 0 else X
     prec = 1.0 / (ctrl.var(0) + 1e-8)
     p_max = max(float(prec.max()), 1e-12)
     w = epsilon + (1.0 - epsilon) * (prec / p_max)
     return torch.from_numpy(w.astype(np.float32))
 
-def train_step(source, target, perturbation_id, vf, accelerator,
-               noise_type='Poisson', mode="predict_y", cfg_dropout=0.0,
-               deg_weights=None, condition_idx=None, precision_weights=None,
-               scm_lambda_scale=1.0):
+
+# ----------------------------------------------------------------------------------------
+# Helpers that read module-level state set in __main__: config, accelerator, device,
+# vocab, gene_ids, inverse_dict
+# ----------------------------------------------------------------------------------------
+def unwrap(vf):
+    """Underlying nn.Module with no accelerate / DDP / torch.compile wrapper."""
+    model = accelerator.unwrap_model(vf)
+    return getattr(model, '_orig_mod', model)
+
+class WeightEMA:
+    """Exponential moving average of the model weights. The averaged weights are swapped in
+    for checkpointing and evaluation and swapped back before training continues."""
+    def __init__(self, module, decay):
+        self.decay = decay
+        self.params = list(module.parameters())
+        self.shadow = [p.detach().clone() for p in self.params]
+
+    @torch.no_grad()
+    def update(self, iteration):
+        decay = min(self.decay, (1.0 + iteration) / (10.0 + iteration))
+        torch._foreach_lerp_(self.shadow, [p.detach() for p in self.params], 1.0 - decay)
+
+    @torch.no_grad()
+    def swap(self):
+        for shadow, param in zip(self.shadow, self.params):
+            held = param.detach().clone()
+            param.copy_(shadow)
+            shadow.copy_(held)
+
+def vocab_ids_for_condition(condition_row):
+    """perturbation_dict ids of one condition (n_comb,) -> vocab token ids (n_comb,)."""
+    names = [inverse_dict[int(i)] for i in condition_row.cpu().tolist()]
+    missing = [n for n in names if n not in vocab.stoi]
+    if missing:
+        raise RuntimeError(
+            f"condition {names} has genes missing from the vocab ({missing}); "
+            f"perturbation_id would index the gene embedding table with unrelated integers")
+    return torch.tensor(vocab.encode(names), dtype=torch.long, device=device)
+
+
+# ----------------------------------------------------------------------------------------
+# Training step
+# ----------------------------------------------------------------------------------------
+def train_step(source, target, perturbation_id, vf, deg_weights=None, condition_idx=None,
+               precision_weights=None, samsvae_lambda=0.0):
     B = source.shape[0]
-    device = accelerator.device
 
     input_gene_ids = torch.randperm(source.shape[-1], device=device)[:config.infer_top_gene]
     source = source[:, input_gene_ids]
     target = target[:, input_gene_ids]
-    gene = gene_ids.repeat(B, 1).to(device)
-    gene_input = gene[:, input_gene_ids]
+    gene_input = gene_ids.repeat(B, 1)[:, input_gene_ids]
 
-    if mode == "predict_y":
+    if config.mode == "predict_y":
         t = torch.rand(B, device=device)
-        if noise_type == "Gaussian":
+        if config.noise_type == "Gaussian":
             target_noise = torch.randn_like(source)
-        elif noise_type == "Poisson":
+        elif config.noise_type == "Poisson":
             target_noise = make_lognorm_poisson_noise(
                 target_log=source,
                 alpha=getattr(config, "poisson_alpha", 0.8),
                 per_cell_L=getattr(config, "poisson_target_sum", 1e4),
             )
+        else:
+            raise ValueError(f"Unknown noise_type: {config.noise_type}")
         path_x1 = path.sample(t=t, x_0=target_noise, x_1=target)
 
-        use_null = cfg_dropout > 0.0 and torch.rand(1).item() < cfg_dropout
-        if use_null:
-            base_vf = vf.module if hasattr(vf, 'module') else vf
-            null_pemb = base_vf.p_mask_embed.unsqueeze(0).expand(B, -1).to(source.device)
-            predicted_velocity = vf(gene_input, path_x1.x_t, path_x1.t, source,
-                                    None, gene_input, perturbation_emb=null_pemb, mode=mode)
-        else:
-            predicted_velocity = vf(gene_input, path_x1.x_t, path_x1.t, source,
-                                    perturbation_id, gene_input, mode=mode)
-
+        predicted_velocity = vf(gene_input, path_x1.x_t, path_x1.t, source,
+                                perturbation_id, gene_input, mode="predict_y")
         loss = ((predicted_velocity - path_x1.dx_t) ** 2).mean()
         x1_hat = path_x1.x_t + predicted_velocity * (1 - t).unsqueeze(-1)
 
@@ -211,7 +249,7 @@ def train_step(source, target, perturbation_id, vf, accelerator,
             w = None
             deg_types = ('deg_mse', 'deg_sinkhorn', 'deg_max_sliced',
                          'deg_sinkhorn_sparse', 'deg_mmd')
-            if endpoint_type in deg_types and not use_null:
+            if endpoint_type in deg_types:
                 assert deg_weights is not None and condition_idx is not None, \
                     f"{endpoint_type} selected but DEG weights were never precomputed"
                 ci = condition_idx
@@ -227,7 +265,10 @@ def train_step(source, target, perturbation_id, vf, accelerator,
                     "precision_sinkhorn selected but precision weights were never precomputed"
                 w = precision_weights[input_gene_ids.cpu()].to(device)
 
-            if endpoint_type == 'mmd' or (endpoint_type == 'deg_sinkhorn' and w is None):
+            eps_scale = getattr(config, 'sinkhorn_eps', 0.1)
+            n_iters = getattr(config, 'sinkhorn_iters', 50)
+
+            if endpoint_type == 'mmd' or (endpoint_type in ('deg_sinkhorn', 'deg_mse') and w is None):
                 endpoint_loss = mmd_endpoint(x1_hat, target)
             elif endpoint_type == 'deg_mmd':
                 if w is None:
@@ -239,8 +280,6 @@ def train_step(source, target, perturbation_id, vf, accelerator,
                 weighted_mse = (w * (x1_hat - target) ** 2).mean()
                 endpoint_loss = weighted_mse + 0.1 * mmd_endpoint(x1_hat, target, scales=(1.0, 2.0))
             elif endpoint_type in ('sinkhorn', 'deg_sinkhorn', 'precision_sinkhorn'):
-                eps_scale = getattr(config, 'sinkhorn_eps', 0.1)
-                n_iters = getattr(config, 'sinkhorn_iters', 50)
                 x1_hat_f, target_f = x1_hat.float(), target.float()
                 with torch.no_grad():
                     med = torch.median(weighted_sqdist(x1_hat_f, target_f, w)).clamp_min(1e-6)
@@ -253,8 +292,6 @@ def train_step(source, target, perturbation_id, vf, accelerator,
                     top_frac=getattr(config, 'sliced_top_frac', 0.1),
                 )
             elif endpoint_type == 'deg_sinkhorn_sparse':
-                eps_scale = getattr(config, 'sinkhorn_eps', 0.1)
-                n_iters = getattr(config, 'sinkhorn_iters', 50)
                 x1_hat_f, target_f = x1_hat.float(), target.float()
                 with torch.no_grad():
                     med = torch.median(weighted_sqdist(x1_hat_f, target_f, w)).clamp_min(1e-6)
@@ -274,145 +311,133 @@ def train_step(source, target, perturbation_id, vf, accelerator,
 
             loss = loss + endpoint_loss * config.gamma
 
-        # SAMS-VAE sparse-mechanism-shift regularizer. Computed on the unwrapped model so
-        # grad flows to the head params regardless of DDP / torch.compile wrapping.
-        if getattr(config, 'use_samsvae', False) and not use_null:
-            raw_vf = accelerator.unwrap_model(vf)
-            loss = loss + raw_vf.samsvae_regularizer(
-                perturbation_id,
-                getattr(config, 'samsvae_lambda_mask', 1e-4) * scm_lambda_scale,
-            )
+        # Sparse-mechanism-shift prior on the rows of this batch. Computed on the unwrapped
+        # model so the gradient reaches the head regardless of DDP / torch.compile wrappers.
+        if samsvae_lambda > 0:
+            loss = loss + unwrap(vf).samsvae_regularizer(perturbation_id, samsvae_lambda)
 
-    elif mode == "predict_p":
+    elif config.mode == "predict_p":
         t_p = torch.ones(B, device=device)
-        predicted_p_embed = vf(gene_input, target, t_p, source, perturbation_id, gene_input, mode=mode)
-        base_vf = vf.module if hasattr(vf, "module") else vf
-        p_embed_gt = base_vf.get_perturbation_emb(perturbation_id=perturbation_id, cell_1=source)
+        predicted_p_embed = vf(gene_input, target, t_p, source, perturbation_id, gene_input,
+                               mode="predict_p")
+        p_embed_gt = unwrap(vf).get_perturbation_emb(perturbation_id=perturbation_id, cell_1=source)
         pred = F.normalize(predicted_p_embed, dim=-1)
         tgt = F.normalize(p_embed_gt.detach(), dim=-1)
         loss = 1 - (pred * tgt).sum(dim=-1).mean()
+    else:
+        raise ValueError(f"Unknown mode: {config.mode}")
 
     return loss
 
 
-def wrapped_vf(target, t, source, perturbation_id, vf, gene_ids, gene_all, perturbation_emb=None):
-    gene = gene_ids.repeat(source.shape[0], 1).to(device)
-    out = vf(gene, target, t, source, perturbation_id, gene_all, perturbation_emb=perturbation_emb)
-    return out.clone()
-
+# ----------------------------------------------------------------------------------------
+# Sampling and evaluation
+# ----------------------------------------------------------------------------------------
 @torch.no_grad()
-def generate_sample(wrapped_vf, source, condition_vec=None, vf=None, gene_ids=None,
-                    gene_all=None, steps=20, method="rk4", cfg_scale=0.0):
-    noise_type = config.noise_type
-    if noise_type == "Gaussian":
-        target_noise = torch.randn(source.shape[0], config.infer_top_gene, device=source.device)
-    elif noise_type == "Poisson":
-        target_noise = make_lognorm_poisson_noise(
+def generate_sample(vf, source, perturbation_id, gene_ids_eval, steps=20, method="rk4"):
+    if config.noise_type == "Gaussian":
+        initial_noise = torch.randn(source.shape, device=source.device, dtype=source.dtype)
+    elif config.noise_type == "Poisson":
+        initial_noise = make_lognorm_poisson_noise(
             target_log=source,
             alpha=getattr(config, "poisson_alpha", 0.8),
             per_cell_L=getattr(config, "poisson_target_sum", 1e4),
         )
+    else:
+        raise ValueError(f"Unknown noise_type: {config.noise_type}")
 
-    null_pemb = None
-    if cfg_scale > 0.0:
-        base_vf = vf.module if hasattr(vf, 'module') else vf
-        null_pemb = base_vf.p_mask_embed.unsqueeze(0).expand(source.shape[0], -1).to(source.device)
+    gene = gene_ids_eval.repeat(source.shape[0], 1)
 
     def ode_fn(t, x):
-        v_cond = wrapped_vf(x, t, source, condition_vec, vf, gene_ids, gene_all)
-        if cfg_scale > 0.0:
-            v_uncond = wrapped_vf(x, t, source, None, vf, gene_ids, gene_all, perturbation_emb=null_pemb)
-            return v_cond + cfg_scale * (v_cond - v_uncond)
-        return v_cond
+        return vf(gene, x, t, source, perturbation_id, gene).clone()
 
     traj = torchdiffeq.odeint(
-        ode_fn, target_noise, torch.linspace(0, 1, steps).to(source.device),
+        ode_fn, initial_noise, torch.linspace(0, 1, steps).to(source.device),
         atol=1e-4, rtol=1e-4, method=method,
     )
     return torch.clamp(traj[-1], min=0)
 
 
-@torch.inference_mode()
-def test(data_sampler, vf, accelerator, batch_size=128, path='./', vocab=None, scheme='mse'):
-    # Eval identical to original codebase (no RNG save/restore): eval consumes the RNG
-    # stream exactly as upstream, so training trajectory + eval match the original.
-    return _test_impl(data_sampler, vf, accelerator, batch_size, path, vocab, scheme)
+def predict_conditions(data_sampler, vf):
+    """Generate predictions for every evaluated condition. Returns (pred, real) AnnData."""
+    gene_ids_eval = torch.tensor(vocab.encode(list(data_sampler.adata.var_names)),
+                                 dtype=torch.long, device=device)
+    condition_names = data_sampler._perturbation_covariates
+    control_cells = data_sampler.get_control_data()['src_cell_data']
+    control_source = control_cells.to(device)
 
+    pred_blocks, real_blocks = [control_cells], [control_cells]
+    pred_labels = ['control'] * control_cells.shape[0]
+    real_labels = ['control'] * control_cells.shape[0]
 
-@torch.inference_mode()
-def _test_impl(data_sampler, vf, accelerator, batch_size=128, path='./', vocab=None, scheme='mse'):
-    gene_ids_test = vocab.encode(list(data_sampler.adata.var_names))
-    gene_ids_test = torch.tensor(gene_ids_test, dtype=torch.long, device=device)
-    perturbation_name_list = data_sampler._perturbation_covariates
-    control_data = data_sampler.get_control_data()
-    all_pred_expressions = [control_data['src_cell_data']]
-    obs_perturbation_name_pred = ['control'] * control_data['src_cell_data'].shape[0]
-    all_target_expressions = [control_data['src_cell_data']]
-    obs_perturbation_name_real = ['control'] * control_data['src_cell_data'].shape[0]
-
-    print('perturbation_name_list:', len(perturbation_name_list))
-    for perturbation_name in perturbation_name_list:
-        perturbation_data = data_sampler.get_perturbation_data(perturbation_name)
-        target = perturbation_data['tgt_cell_data']
-        perturbation_id = perturbation_data['condition_id'].to(device)
-        source = control_data['src_cell_data'].to(device)
+    print('perturbation_name_list:', len(condition_names))
+    for name in condition_names:
+        data = data_sampler.get_perturbation_data(name)
+        target = data['tgt_cell_data']
+        condition_row = data['condition_id'].to(device)[0]
         if config.perturbation_function == 'crisper':
-                names = [inverse_dict[int(p_id)] for p_id in perturbation_id[0].cpu().numpy()]
-                if all(name in vocab.stoi for name in names):
-                    perturbation_id = torch.tensor(vocab.encode(names), dtype=torch.long, device=device)
-                    perturbation_id = perturbation_id.repeat(source.shape[0], 1)
-                elif config.use_samsvae:
-                    raise RuntimeError(
-                        f"SAMS-VAE indexes pert_to_row by VOCAB token id, but condition "
-                        f"{names} is not fully in the vocab so perturbation_id stayed in "
-                        f"perturbation_dict id space. Mechanism attribution would be wrong.")
+            condition_row = vocab_ids_for_condition(condition_row)
 
-        idx = torch.randperm(source.shape[0])
-        source = source[idx]
-        N = 128
-        source = source[:N]
+        order = torch.randperm(control_source.shape[0])
+        source = control_source[order][:EVAL_CELLS]
 
-        pred_expressions = []
-        for i in trange(0, N, batch_size):
-            batch_perturbation_id = perturbation_id[0].repeat(source[i:i + batch_size].shape[0], 1).to(accelerator.device)
-            pred_expression = generate_sample(
-                wrapped_vf, source[i:i + batch_size], batch_perturbation_id,
-                vf, gene_ids=gene_ids_test, gene_all=gene_ids_test, cfg_scale=0.0 #cfg_scale=1.5
-            )
-            pred_expressions.append(pred_expression)
+        chunks = []
+        for i in range(0, source.shape[0], config.batch_size):
+            batch_source = source[i:i + config.batch_size]
+            batch_condition = condition_row.repeat(batch_source.shape[0], 1)
+            chunks.append(generate_sample(vf, batch_source, batch_condition, gene_ids_eval))
+        pred_expressions = torch.cat(chunks, dim=0).cpu().numpy()
 
-        pred_expressions = torch.cat(pred_expressions, dim=0).cpu().numpy()
-        all_pred_expressions.append(pred_expressions)
-        all_target_expressions.append(target)
-        obs_perturbation_name_pred.extend([perturbation_name] * pred_expressions.shape[0])
-        obs_perturbation_name_real.extend([perturbation_name] * target.shape[0])
+        pred_blocks.append(pred_expressions)
+        real_blocks.append(target)
+        pred_labels.extend([name] * pred_expressions.shape[0])
+        real_labels.extend([name] * target.shape[0])
 
-    all_pred_expressions = np.concatenate(all_pred_expressions, axis=0)
-    n_nan = np.isnan(all_pred_expressions).sum()
-    n_inf = np.isinf(all_pred_expressions).sum()
+    pred_matrix = np.concatenate(pred_blocks, axis=0)
+    n_nan = np.isnan(pred_matrix).sum()
+    n_inf = np.isinf(pred_matrix).sum()
     print(f"[eval] pred non-finite: nan={n_nan} inf={n_inf} "
-          f"min={np.nanmin(all_pred_expressions):.4f} max={np.nanmax(all_pred_expressions):.4f}")
-    all_pred_expressions = np.nan_to_num(all_pred_expressions, nan=0.0, posinf=0.0, neginf=0.0)
-    all_target_expressions = np.concatenate(all_target_expressions, axis=0)
-    obs_pred = pd.DataFrame({'perturbation': obs_perturbation_name_pred})
-    obs_real = pd.DataFrame({'perturbation': obs_perturbation_name_real})
-    pred = ad.AnnData(X=all_pred_expressions, obs=obs_pred)
-    real = ad.AnnData(X=all_target_expressions, obs=obs_real)
+          f"min={np.nanmin(pred_matrix):.4f} max={np.nanmax(pred_matrix):.4f}")
+    pred_matrix = np.nan_to_num(pred_matrix, nan=0.0, posinf=0.0, neginf=0.0)
+    real_matrix = np.concatenate(real_blocks, axis=0)
+    pred = ad.AnnData(X=pred_matrix, obs=pd.DataFrame({'perturbation': pred_labels}))
+    real = ad.AnnData(X=real_matrix, obs=pd.DataFrame({'perturbation': real_labels}))
+    return pred, real
+
+
+@torch.inference_mode()
+def evaluate(data_sampler, vf, out_dir, scheme='mse'):
+    """Evaluation runs in eval mode (no dropout, deterministic SAMS-VAE gates) with its own
+    fixed RNG stream, and restores both the training mode and the training RNG afterwards."""
+    cuda_devices = []
+    if device.type == 'cuda':
+        cuda_devices = [device.index if device.index is not None else torch.cuda.current_device()]
+    vf.eval()
+    try:
+        with torch.random.fork_rng(devices=cuda_devices):
+            torch.manual_seed(EVAL_SEED)
+            pred, real = predict_conditions(data_sampler, vf)
+    finally:
+        vf.train()
 
     eval_score = None
     if accelerator.is_main_process:
-        evaluator = MetricsEvaluator(adata_pred=pred, adata_real=real,
-                                     control_pert="control", pert_col="perturbation", num_threads=32, outdir=path)
-        (results, agg_results) = evaluator.compute()
-        results.write_csv(os.path.join(path, 'results.csv'))
-        agg_results.write_csv(os.path.join(path, 'agg_results.csv'))
-        pred.write_h5ad(os.path.join(path, 'pred.h5ad'))
-        real.write_h5ad(os.path.join(path, 'real.h5ad'))
+        evaluator = MetricsEvaluator(adata_pred=pred, adata_real=real, control_pert="control",
+                                     pert_col="perturbation",
+                                     num_threads=min(32, os.cpu_count() or 1), outdir=out_dir)
+        results, agg_results = evaluator.compute()
+        results.write_csv(os.path.join(out_dir, 'results.csv'))
+        agg_results.write_csv(os.path.join(out_dir, 'agg_results.csv'))
+        pred.write_h5ad(os.path.join(out_dir, 'pred.h5ad'))
+        real.write_h5ad(os.path.join(out_dir, 'real.h5ad'))
         eval_score = pick_eval_score(agg_results, scheme)
         print(f"Current evaluation score: {eval_score:.4f}")
-
     return eval_score
 
+
+# ----------------------------------------------------------------------------------------
+# Checkpoint discovery
+# ----------------------------------------------------------------------------------------
 def find_latest_checkpoint(save_path: str) -> str | None:
     if not os.path.isdir(save_path):
         return None
@@ -426,6 +451,7 @@ def find_latest_checkpoint(save_path: str) -> str | None:
     if not candidates:
         return None
     return max(candidates, key=lambda x: x[0])[1]
+
 
 if __name__ == "__main__":
     config = tyro.cli(Config)
@@ -441,11 +467,14 @@ if __name__ == "__main__":
 
     set_seed(config.seed)
 
+    save_path = config.make_path()
     if accelerator.is_main_process:
         print(config)
-        save_path = config.make_path()
         os.makedirs(save_path, exist_ok=True)
     device = accelerator.device
+
+    if config.use_samsvae and config.perturbation_function != 'crisper':
+        raise ValueError("use_samsvae requires perturbation_function='crisper'")
 
     data_manager = Data('./data')
     data_manager.load_data(config.data_name)
@@ -466,14 +495,9 @@ if __name__ == "__main__":
     dataloader = DataLoader(train_dataset, batch_size=1, shuffle=False,
                             num_workers=8, pin_memory=True, persistent_workers=True)
 
-    if config.use_negative_edge:
-        mask_path = os.path.join(
-            data_manager.data_path, data_manager.data_name,
-            'mask_fold_' + str(config.fold) + 'topk_' + str(config.topk) + config.split_method + '_negative_edge' + '.pt')
-    else:
-        mask_path = os.path.join(
-            data_manager.data_path, data_manager.data_name,
-            'mask_fold_' + str(config.fold) + 'topk_' + str(config.topk) + config.split_method + '.pt')
+    mask_name = ('mask_fold_' + str(config.fold) + 'topk_' + str(config.topk) + config.split_method
+                 + ('_negative_edge' if config.use_negative_edge else '') + '.pt')
+    mask_path = os.path.join(data_manager.data_path, data_manager.data_name, mask_name)
 
     vocab = process_vocab(data_manager, config)
 
@@ -489,38 +513,37 @@ if __name__ == "__main__":
             eigvec_dim = getattr(config, 'wire_eigvec_dim', 32)
             hvg_gene_names = list(data_manager.adata.var_names)
             gene_token_ids = vocab.encode(hvg_gene_names)
-            ntoken_local = len(vocab)
             X = data_manager.adata_train.X
             if hasattr(X, 'toarray'):
                 X = X.toarray()
             X = X.astype(np.float32)
             coords_hvg = compute_laplacian_eigvecs(X, eigvec_dim, k=config.topk)
-            spectral_coords = torch.zeros(ntoken_local, eigvec_dim, dtype=torch.float32)
+            spectral_coords = torch.zeros(len(vocab), eigvec_dim, dtype=torch.float32)
             for pos, token_id in enumerate(gene_token_ids):
                 spectral_coords[token_id] = torch.from_numpy(coords_hvg[pos])
             torch.save(spectral_coords, wire_path)
         _wire_rows = torch.load(wire_path, weights_only=True).shape[0]
         assert _wire_rows == len(vocab), (
             f"wire eigvec rows {_wire_rows} != vocab {len(vocab)}; delete {wire_path} "
-            f"and rerun precompute_wire_once.sh")
+            f"and rebuild it")
         model_wire_path = wire_path
     else:
         model_wire_path = None
 
-    gene_ids = vocab.encode(list(data_manager.adata.var_names))
-    gene_ids = torch.tensor(gene_ids, dtype=torch.long, device=device)
+    gene_ids = torch.tensor(vocab.encode(list(data_manager.adata.var_names)),
+                            dtype=torch.long, device=device)
 
-    # Hard/soft factor anchoring: map each perturbable gene to a vocab token id, sorted
-    # for a deterministic factor<->gene correspondence across seeds. Hard anchor sets
-    # K = len(these) and factor k == gene _pert_names[k] (A becomes a gene x gene DAG).
-    _pert_names = sorted(g for g in data_manager.perturbation_dict if g != 'control')
-    samsvae_pert_vocab_ids = [vocab[g] for g in _pert_names if g in vocab.stoi]
+    # Row k of the SAMS-VAE tables is the k-th perturbable gene in sorted order, so the
+    # row <-> gene correspondence is identical across seeds and arms.
+    samsvae_pert_vocab_ids = []
+    if config.use_samsvae:
+        pert_names = sorted(g for g in data_manager.perturbation_dict if g != 'control')
+        samsvae_pert_vocab_ids = [vocab[g] for g in pert_names if g in vocab.stoi]
 
     vf = instantiate_model(
         config.model_type,
         ntoken=len(vocab),
         d_model=config.d_model,
-        d_perturbation=config.d_model,
         fusion_method=config.fusion_method,
         perturbation_function=config.perturbation_function,
         mask_path=mask_path,
@@ -530,34 +553,25 @@ if __name__ == "__main__":
         neighbor_cap=config.neighbor_cap,
         use_velocity_gate=config.use_velocity_gate,
         use_samsvae=config.use_samsvae,
-        samsvae_control_id=(vocab['control'] if 'control' in vocab.stoi else None),
         samsvae_pert_vocab_ids=samsvae_pert_vocab_ids,
-        samsvae_latent_dim=getattr(config, 'samsvae_latent_dim', 64),
-        samsvae_mask_prior=getattr(config, 'samsvae_mask_prior', 'l1'),
+        samsvae_latent_dim=config.samsvae_latent_dim,
+        samsvae_mask_prior=config.samsvae_mask_prior,
     )
 
-    save_path = config.make_path()
-
-    if config.use_samsvae and getattr(config, 'samsvae_lr', 0.0) and config.samsvae_lr > 0:
-        samsvae_params = list(vf.samsvae.parameters()) if hasattr(vf, 'samsvae') else []
-        samsvae_ids = {id(p) for p in samsvae_params}
-        other_params = [p for p in vf.parameters() if id(p) not in samsvae_ids]
-        if getattr(config, 'samsvae_freeze_base', False):
-            # Freeze the pretrained baseline; only the (zero-init) causal head learns, so it
-            # must independently carry any gain -> a clean test of the causal head's value.
-            for p in other_params:
-                p.requires_grad = False
-            optimizer = torch.optim.Adam([{'params': samsvae_params, 'lr': config.samsvae_lr}])
-            print(f"[SAMSVAE] FROZEN base; training only {len(samsvae_params)} causal-head tensors @ lr={config.samsvae_lr}")
-        else:
-            optimizer = torch.optim.Adam([
-                {'params': other_params, 'lr': config.lr},
-                {'params': samsvae_params, 'lr': config.samsvae_lr},
-            ])
-            print(f"[SAMSVAE] dedicated param group: {len(samsvae_params)} tensors @ lr={config.samsvae_lr}")
+    if config.use_samsvae:
+        head_params = list(vf.samsvae.parameters())
+        head_ids = {id(p) for p in head_params}
+        other_params = [p for p in vf.parameters() if id(p) not in head_ids]
+        head_lr = config.samsvae_lr if config.samsvae_lr > 0 else config.lr
+        optimizer = torch.optim.Adam([
+            {'params': other_params, 'lr': config.lr},
+            {'params': head_params, 'lr': head_lr},
+        ])
+        print(f"[SAMSVAE] dedicated param group: {len(head_params)} tensors @ lr={head_lr}")
     else:
         optimizer = torch.optim.Adam(vf.parameters(), lr=config.lr)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config.steps, eta_min=config.eta_min)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=config.steps, eta_min=config.eta_min)
 
     if config.checkpoint_path == '':
         config.checkpoint_path = find_latest_checkpoint(save_path) or ''
@@ -565,9 +579,7 @@ if __name__ == "__main__":
     start_iteration = 0
     if config.checkpoint_path != '':
         if config.finetune:
-            # Finetune: load ONLY model weights (new causal head stays zero-init), keep the
-            # freshly-built optimizer/scheduler (which include the causal-head param group),
-            # and train from iteration 0 with the finetune LR schedule.
+            # Weights only; fresh optimizer / scheduler; training restarts at iteration 0.
             if accelerator.is_main_process:
                 print(f"Finetuning from checkpoint (weights only): {config.checkpoint_path}")
             load_checkpoint(config.checkpoint_path, vf)
@@ -586,7 +598,8 @@ if __name__ == "__main__":
         start_iteration = config.steps
 
     deg_weights = None
-    if getattr(config, 'endpoint_loss', 'mmd') in ('deg_mmd', 'deg_sinkhorn', 'deg_max_sliced', 'deg_sinkhorn_sparse'):
+    if getattr(config, 'endpoint_loss', 'mmd') in ('deg_mmd', 'deg_sinkhorn', 'deg_max_sliced',
+                                                    'deg_sinkhorn_sparse', 'deg_mse'):
         if accelerator.is_main_process:
             print("Precomputing DEG weights...")
         deg_weights = compute_deg_weights(train_sampler, epsilon=getattr(config, 'deg_epsilon', 0.1))
@@ -609,6 +622,7 @@ if __name__ == "__main__":
         vf = torch.compile(vf, mode="max-autotune")
     optimizer, scheduler, dataloader = accelerator.prepare(optimizer, scheduler, dataloader)
     inverse_dict = {v: str(k) for k, v in data_manager.perturbation_dict.items()}
+    ema = WeightEMA(unwrap(vf), config.ema_decay)
     pbar = tqdm.tqdm(total=config.steps, initial=start_iteration)
     iteration = start_iteration
 
@@ -618,64 +632,62 @@ if __name__ == "__main__":
                 break
             source = batch_data['src_cell_data'].squeeze(0)
             target = batch_data['tgt_cell_data'].squeeze(0)
-            condition_idx_raw = batch_data['condition_id'].squeeze(0)        # before CRISPR token conversion
-            perturbation_id = batch_data['condition_id'].squeeze(0).to(device)
+            condition_idx_raw = batch_data['condition_id'].squeeze(0)        # before vocab conversion
+            perturbation_id = condition_idx_raw.to(device)
             if config.perturbation_function == 'crisper':
-                names = [inverse_dict[int(p_id)] for p_id in perturbation_id[0].cpu().numpy()]
-                if not all(name in vocab.stoi for name in names):
-                    raise RuntimeError(
-                        f"condition {names} not fully in vocab; perturbation_id would stay in "
-                        f"perturbation_dict id space and index the gene embedding table with "
-                        f"unrelated integers")
-                perturbation_id = torch.tensor(vocab.encode(names), dtype=torch.long, device=device)
-                perturbation_id = perturbation_id.repeat(source.shape[0], 1)
+                perturbation_id = vocab_ids_for_condition(perturbation_id[0]).repeat(source.shape[0], 1)
 
-            if not (config.use_samsvae and getattr(config, 'samsvae_freeze_base', False)):
-                set_requires_grad_for_p_only(vf, p_only=config.mode)
+            set_requires_grad_for_p_only(vf, p_only=config.mode)
 
-            scm_scale = 1.0
-            if config.use_samsvae and getattr(config, 'samsvae_warmup_steps', 0) > 0:
-                scm_scale = min(1.0, iteration / float(config.samsvae_warmup_steps))
+            samsvae_lambda = 0.0
+            if config.use_samsvae:
+                warmup = config.samsvae_warmup_steps
+                scale = min(1.0, iteration / float(warmup)) if warmup > 0 else 1.0
+                samsvae_lambda = config.samsvae_lambda_mask * scale
 
-            loss = train_step(source, target, perturbation_id, vf, accelerator,
-                            noise_type=config.noise_type, mode=config.mode, cfg_dropout=0.0, #cfg_dropout=0.02,
-                            deg_weights=deg_weights, condition_idx=condition_idx_raw,
-                            precision_weights=precision_weights, scm_lambda_scale=scm_scale)
+            loss = train_step(source, target, perturbation_id, vf,
+                              deg_weights=deg_weights, condition_idx=condition_idx_raw,
+                              precision_weights=precision_weights, samsvae_lambda=samsvae_lambda)
 
             optimizer.zero_grad(set_to_none=True)
             if torch.isfinite(loss):
                 accelerator.backward(loss)
                 accelerator.clip_grad_norm_(vf.parameters(), max_norm=1.0)
                 optimizer.step()
+                ema.update(iteration)
             elif accelerator.is_main_process:
                 print(f"[warn] non-finite loss at iteration {iteration}, step skipped")
             scheduler.step()
 
-            # SAMS-VAE activity instrumentation (B3): confirm the head is not collapsing
-            # to a permanent no-op residual.
             if config.use_samsvae and accelerator.is_main_process and iteration % 200 == 0:
                 try:
-                    st = accelerator.unwrap_model(vf).samsvae_stats(perturbation_id)
-                    # mech_l1 / active_dims are gauge-INVARIANT collapse probes: if they
-                    # trend to 0 the sparse mask is empty (interpretability claim void).
+                    st = unwrap(vf).samsvae_stats(perturbation_id)
+                    # mech_l1 and active_dims trending to 0 means the sparse mask is empty.
                     print(f"[SAMSVAE] it={iteration} code_norm(mean/max)="
                           f"{st['code_norm_mean']:.4f}/{st['code_norm_max']:.4f} "
                           f"z_norm={st['z_norm_mean']:.4f} mech_l1={st['mech_l1_mean']:.4f} "
                           f"active_dims={st['active_dims_mean']:.4f} mask_mean={st['mask_mean']:.4f} "
-                          f"shift_absmax={st['shift_absmax']:.4f}")
+                          f"shift_norm={st['shift_norm_mean']:.4f}")
                 except Exception as e:
                     print(f"[SAMSVAE] stats error: {e}")
 
-            if iteration > 0 and iteration % config.print_every == 0:
-                save_path_ = os.path.join(save_path, f'iteration_{iteration}')
+            is_final = iteration + 1 == config.steps
+            if (iteration > 0 and iteration % config.print_every == 0) or is_final:
+                # The final model is saved as iteration_<steps> so it is never skipped.
+                # Checkpoints and evaluation use the EMA weights.
+                tag = config.steps if is_final else iteration
+                save_path_ = os.path.join(save_path, f'iteration_{tag}')
                 os.makedirs(save_path_, exist_ok=True)
-                if accelerator.is_main_process:
-                    print(f"saving {iteration}'s checkpoint...")
-                    save_checkpoint(
-                        model=accelerator.unwrap_model(vf), optimizer=optimizer, scheduler=scheduler,
-                        iteration=iteration, eval_score=None, save_path=save_path_, is_best=False)
-                eval_score = test(valid_sampler, vf, accelerator,
-                                  batch_size=config.batch_size, path=save_path_, vocab=vocab)
+                ema.swap()
+                try:
+                    if accelerator.is_main_process:
+                        print(f"saving {tag}'s checkpoint...")
+                        save_checkpoint(
+                            model=unwrap(vf), optimizer=optimizer, scheduler=scheduler,
+                            iteration=iteration, eval_score=None, save_path=save_path_, is_best=False)
+                    evaluate(valid_sampler, vf, save_path_)
+                finally:
+                    ema.swap()
 
             accelerator.wait_for_everyone()
             pbar.update(1)
