@@ -1,12 +1,14 @@
 # SPEAR: Spectral Adaptive Repositioning for Flow-Based Single-Cell Perturbation Modeling
 
+[![NeurIPS 2026](https://img.shields.io/badge/NeurIPS-2026-68448F)](https://neurips.cc/virtual/2026/poster/152050)
+[![OpenReview Paper Link](https://img.shields.io/badge/OpenReview-Forum-2D7FF9?logo=openreview&logoColor=white)](https://openreview.net/forum?id=VsHXKYG0Sq)
+[![Codebase](https://img.shields.io/badge/Codebase-GitHub-181717?logo=github)](https://github.com/shouryaverma/SPEAR)
+
 Official code for the NeurIPS 2026 paper **Spectral Adaptive Repositioning for Flow-Based Single-Cell Perturbation Modeling**.
 
 Shourya Verma\*, Mengbo Wang\*, Simran Kadadi\*, Nadia Atallah Lanman, Shahin Mohammadi, Ananth Grama
 
-Purdue University, Broad Institute (Cytognosis). \*Equal contribution.
-
-[Project page (NeurIPS 2026)](https://neurips.cc/virtual/2026/poster/152050) | [OpenReview Paper Link](https://openreview.net/forum?id=VsHXKYG0Sq)
+Purdue University, Broad Institute. \*Equal contribution.
 
 <p align="center">
   <img src="assets/spear_title.drawio.png" width="92%" alt="SPEAR overview">
@@ -53,7 +55,31 @@ conda activate <env_name_from_environment.yml>
 export PYTHONPATH=.
 ```
 
-## Data
+## Dataset download
+
+Put the datasets into the `data/` folder (it may be a symlink to a shared location).
+
+- [Norman](https://figshare.com/articles/dataset/Norman_et_al_2019_Science_labeled_Perturb-seq_data/24688110)
+- [ComboSciPlex subset of sciplex v3](https://figshare.com/articles/dataset/combosciplex/25062230?file=44229635)
+- [Parse-PBMC (10 million PBMC cytokine screen)](https://www.parsebiosciences.com/datasets/10-million-human-pbmcs-in-a-single-experiment/). We use the splits of [STATE](https://github.com/ArcInstitute/state), so the Parse-PBMC data and split configuration should be obtained following the STATE repository.
+- [Replogle K562 Perturb-seq (via scPerturb)](http://projects.sanderlab.org/scperturb/), only needed to run the `replogle` experiments in `run_experiments.sbatch`.
+
+### Alternative data access
+
+The Norman and ComboSciPlex datasets, together with the Norman data splits, are also available from the [scDFM Google Drive folder](https://drive.google.com/drive/folders/1cNpYAt9jVWZN82miNZtkP10YeSo7hufL?usp=sharing). The Norman and ComboSciPlex results in our paper use the exact dataset splits and fixed seed of [scDFM](https://github.com/AI4Science-WestlakeU/scDFM), and the Parse-PBMC results use those of STATE.
+
+Example directory layout after download (relative to the repository root):
+
+```
+SPEAR/
+├─ data/
+│  ├─ norman.h5ad
+│  ├─ combosciplex.h5ad
+│  └─ ...
+├─ src/
+│  └─ ...
+└─ run_experiments.sbatch
+```
 
 Supported datasets (`--data_name`):
 
@@ -64,11 +90,11 @@ Supported datasets (`--data_name`):
 | `combosciplex` | Drug combinations | A549 |
 | `parse_pbmc` | Cytokines | Human PBMC |
 
-Place the datasets under `data/`, following the layout used by [scDFM](https://github.com/AI4Science-WestlakeU/scDFM) (`data/` may be a symlink). Gene vocabularies for each dataset are in `src/tokenizer/`.
+Gene vocabularies for each dataset are in `src/tokenizer/`.
 
-Two derived files are built automatically on first use and cached next to the data:
+Two derived files are built automatically on first use and cached under `data/<dataset>/`:
 
-- the top-k co-expression neighbor mask: `data/<dataset>/mask_fold_<fold>topk_30<split>_negative_edge.pt`
+- the top-k co-expression neighbor mask: `mask_fold_<fold>topk_30<split>_negative_edge.pt`
 - the spectral coordinates (Laplacian eigenvectors): the same name with `_wire_eigvecs.pt`
 
 Both are computed from the training split only.
@@ -112,17 +138,23 @@ Each run writes to a directory under `--result_path` named from its configuratio
 
 ### Slurm
 
-`run_experiments.sbatch` is the single entry point for every experiment. It builds a job table, runs one task per array index, skips finished runs, resumes interrupted ones, and requeues itself before the wall-time limit. Edit the account, partition, and `REPO_DIR` / `CONDA_ENV` defaults at the top for your cluster, then submit from the repository root:
+`run_experiments.sbatch` is the single entry point for every experiment. It builds a job table, runs one task per array index, skips finished runs, resumes interrupted ones, and requeues itself before the wall-time limit. Cluster-specific settings are not hardcoded; pass your account and partition at submission from the repository root:
 
 ```bash
 mkdir -p logs
-bash run_experiments.sbatch count              # number of jobs in the table
-sbatch run_experiments.sbatch                  # tasks 0-16
-sbatch --array=0-106 run_experiments.sbatch    # everything
-sbatch --array=17-106 run_experiments.sbatch   # endpoint-loss matrix only
+bash run_experiments.sbatch count                                   # number of jobs in the table
+sbatch -A <account> -p <partition> run_experiments.sbatch           # tasks 0-16
+sbatch -A <account> -p <partition> --array=0-106 run_experiments.sbatch    # everything
+sbatch -A <account> -p <partition> --array=17-106 run_experiments.sbatch   # endpoint-loss matrix only
 ```
 
-Job logs are written to `logs/`.
+Optional environment variables: `REPO_DIR` (default: the submission directory), `CONDA_ENV` (default: the name in `environment.yml`), `CONDA_MODULE` (module that provides conda, loaded only if conda is not on `PATH`), and `WARM_CACHE`. Job logs are written to `logs/`.
+
+To avoid recompiling the model at the start of every job, build the compiler cache once on a GPU node before submitting:
+
+```bash
+bash warm_inductor_cache.sh [data] [split] [fold]
+```
 
 ## Endpoint loss and mechanism-shift options
 
@@ -157,6 +189,7 @@ All options are defined in `config/config_flow.py`.
 
 ```
 SPEAR/
+├── assets/                   figures
 ├── config/
 │   └── config_flow.py        run configuration and result path naming
 ├── src/
@@ -168,10 +201,13 @@ SPEAR/
 │   ├── tokenizer/            per-dataset gene vocabularies
 │   └── utils/
 ├── environment.yml
-└── run_experiments.sbatch    experiment table and Slurm entry point
+├── run_experiments.sbatch    experiment table and Slurm entry point
+└── warm_inductor_cache.sh    one-time compiler cache build
 ```
 
 ## Citation
+
+If you find our work and/or our code useful, please cite us via:
 
 ```bibtex
 @inproceedings{verma2026spear,
