@@ -1,6 +1,6 @@
 # SPEAR: Spectral Adaptive Repositioning for Flow-Based Single-Cell Perturbation Modeling
 
-[![Paper PDF](https://img.shields.io/badge/Paper-PDF-FFFFFF?logo=openreview&logoColor=white)](https://openreview.net/forum?id=VsHXKYG0Sq#discussion)
+[![Paper PDF](https://img.shields.io/badge/Paper-PDF-FFFFFF?logo=openreview&logoColor=white)](https://www.biorxiv.org/content/10.64898/2026.11.02.763678v1.full.pdf)
 [![NeurIPS 2026](https://img.shields.io/badge/NeurIPS-2026-9B5DE5)](https://neurips.cc/virtual/2026/poster/152050)
 [![OpenReview](https://img.shields.io/badge/OpenReview-Forum-E53935?logo=openreview&logoColor=white)](https://openreview.net/forum?id=VsHXKYG0Sq)
 [![Codebase](https://img.shields.io/badge/Codebase-GitHub-181717?logo=github)](https://github.com/shouryaverma/SPEAR)
